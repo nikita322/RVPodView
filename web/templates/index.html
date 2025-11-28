@@ -38,15 +38,50 @@
                 <h2>RVPodView</h2>
             </div>
             <nav>
-                <a href="#" class="nav-item active" data-page="dashboard">Dashboard</a>
-                <a href="#" class="nav-item" data-page="containers">Containers</a>
-                <a href="#" class="nav-item" data-page="images">Images</a>
-                <a href="#" class="nav-item admin-only" data-page="terminal">Terminal</a>
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/>
+                        <rect x="14" y="3" width="7" height="7" rx="1"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                        <rect x="14" y="14" width="7" height="7" rx="1"/>
+                    </svg>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" data-page="containers">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                        <line x1="12" y1="22.08" x2="12" y2="12"/>
+                    </svg>
+                    <span class="nav-text">Containers</span>
+                </a>
+                <a href="#" class="nav-item" data-page="images">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="20" rx="2"/>
+                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                        <polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                    <span class="nav-text">Images</span>
+                </a>
+                <a href="#" class="nav-item admin-only" data-page="terminal">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="4 17 10 11 4 5"/>
+                        <line x1="12" y1="19" x2="20" y2="19"/>
+                    </svg>
+                    <span class="nav-text">Terminal</span>
+                </a>
             </nav>
             <div class="user-info">
                 <span id="current-user"></span>
                 <span id="user-role" class="badge"></span>
-                <button id="logout-btn" class="btn btn-small">Logout</button>
+                <button id="logout-btn" class="btn btn-logout">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                        <polyline points="16 17 21 12 16 7"/>
+                        <line x1="21" y1="12" x2="9" y2="12"/>
+                    </svg>
+                    <span class="btn-text">Logout</span>
+                </button>
             </div>
         </aside>
 
