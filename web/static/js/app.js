@@ -35,7 +35,8 @@ const App = {
             });
         });
 
-        // Dashboard - System prune
+        // Dashboard
+        document.getElementById('refresh-dashboard').addEventListener('click', () => this.loadDashboard());
         document.getElementById('system-prune-btn').addEventListener('click', () => this.systemPrune());
 
         // Containers page

@@ -265,6 +265,19 @@ body {
     font-size: 13px;
 }
 
+/* Button with icon */
+.btn .btn-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.btn:has(.btn-icon) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 /* Main Content */
 .main-content {
     flex: 1;
