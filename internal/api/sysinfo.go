@@ -74,6 +74,12 @@ func getCPUUsage() float64 {
 	return usage
 }
 
+// friendlyTempNames maps system sensor names to human-readable names
+var friendlyTempNames = map[string]string{
+	"cluster0_thermal": "CPU Cluster 0",
+	"cluster1_thermal": "CPU Cluster 1",
+}
+
 // getTemperatures reads temperatures from /sys/class/hwmon
 func getTemperatures() []Temperature {
 	temps := []Temperature{}
@@ -119,12 +125,16 @@ func getTemperatures() []Temperature {
 
 			tempC := float64(tempMilliC) / 1000.0
 
-			// Try to get label
+			// Try to get label first, then use friendly name or device name
 			labelFile := strings.Replace(f.Name(), "_input", "_label", 1)
 			labelBytes, err := os.ReadFile(filepath.Join(devicePath, labelFile))
-			label := deviceName
+			var label string
 			if err == nil {
 				label = strings.TrimSpace(string(labelBytes))
+			} else if friendly, ok := friendlyTempNames[deviceName]; ok {
+				label = friendly
+			} else {
+				label = deviceName
 			}
 
 			temps = append(temps, Temperature{
