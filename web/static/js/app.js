@@ -404,9 +404,10 @@ const App = {
                 document.getElementById('info-memory').textContent = `${memFree} free / ${memTotal} total`;
             }
 
-            // Update host stats (CPU, temperatures)
+            // Update host stats (CPU, uptime, temperatures)
             if (data.hostStats) {
                 document.getElementById('info-cpu').textContent = data.hostStats.cpuUsage.toFixed(1) + '%';
+                document.getElementById('info-uptime').textContent = this.formatUptime(data.hostStats.uptime);
 
                 // Update temperatures
                 const tempsGrid = document.getElementById('temps-grid');
@@ -914,6 +915,20 @@ const App = {
         if (!timestamp) return '-';
         const date = new Date(timestamp * 1000);
         return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    },
+
+    formatUptime(seconds) {
+        if (!seconds) return '-';
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+
+        let parts = [];
+        if (days > 0) parts.push(`${days}d`);
+        if (hours > 0) parts.push(`${hours}h`);
+        if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+
+        return parts.join(' ');
     }
 };
 

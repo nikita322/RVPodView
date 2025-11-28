@@ -9,10 +9,11 @@ import (
 	"strings"
 )
 
-// HostStats represents CPU and temperature info
+// HostStats represents CPU, temperature and uptime info
 type HostStats struct {
 	CPUUsage     float64       `json:"cpuUsage"`
 	Temperatures []Temperature `json:"temperatures"`
+	Uptime       int64         `json:"uptime"` // seconds
 }
 
 // Temperature represents a temperature sensor reading
@@ -21,7 +22,7 @@ type Temperature struct {
 	Temp  float64 `json:"temp"`
 }
 
-// GetHostStats reads CPU usage and temperatures from /sys and /proc
+// GetHostStats reads CPU usage, temperatures and uptime from /sys and /proc
 func GetHostStats() *HostStats {
 	stats := &HostStats{
 		Temperatures: []Temperature{},
@@ -33,7 +34,30 @@ func GetHostStats() *HostStats {
 	// Get temperatures from hwmon
 	stats.Temperatures = getTemperatures()
 
+	// Get uptime
+	stats.Uptime = getUptime()
+
 	return stats
+}
+
+// getUptime reads system uptime from /proc/uptime
+func getUptime() int64 {
+	data, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return 0
+	}
+
+	fields := strings.Fields(string(data))
+	if len(fields) < 1 {
+		return 0
+	}
+
+	uptime, err := strconv.ParseFloat(fields[0], 64)
+	if err != nil {
+		return 0
+	}
+
+	return int64(uptime)
 }
 
 // getCPUUsage reads CPU usage from /proc/stat
