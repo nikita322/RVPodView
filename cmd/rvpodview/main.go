@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -15,6 +16,9 @@ import (
 )
 
 func main() {
+	// Load .env file
+	loadEnvFile(".env")
+
 	// Command line flags
 	addr := flag.String("addr", ":80", "HTTP server address")
 	socketPath := flag.String("socket", "", "Podman socket path (auto-detect if empty)")
@@ -122,4 +126,38 @@ func printAccessURLs(port string) {
 		fmt.Printf("  http://%s:%s\n", ip, port)
 	}
 	fmt.Println()
+}
+
+// loadEnvFile loads environment variables from a file
+func loadEnvFile(filename string) {
+	file, err := os.Open(filename)
+	if err != nil {
+		// .env file is optional
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Parse KEY=value
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		// Don't override existing env variables
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
+		}
+	}
 }
