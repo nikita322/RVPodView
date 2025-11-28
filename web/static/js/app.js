@@ -392,7 +392,6 @@ const App = {
             // Update system info
             if (data.system && data.system.host) {
                 document.getElementById('info-hostname').textContent = data.system.host.hostname || '-';
-                document.getElementById('info-os').textContent = data.system.host.os || '-';
                 document.getElementById('info-kernel').textContent = data.system.host.kernel || '-';
                 document.getElementById('info-arch').textContent = data.system.host.arch || '-';
             }

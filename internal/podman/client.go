@@ -576,7 +576,6 @@ type SystemInfo struct {
 		Arch       string `json:"arch"`
 		Hostname   string `json:"hostname"`
 		Kernel     string `json:"kernel"`
-		Os         string `json:"os"`
 		Uptime     string `json:"uptime"`
 		MemTotal   int64  `json:"memTotal"`
 		MemFree    int64  `json:"memFree"`
