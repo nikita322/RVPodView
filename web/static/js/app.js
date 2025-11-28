@@ -435,27 +435,49 @@ const App = {
         tbody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
 
         try {
-            const response = await fetch('/api/containers?all=true');
-            if (!response.ok) throw new Error('Failed to load containers');
+            // Load containers and stats in parallel
+            const [containersRes, statsRes] = await Promise.all([
+                fetch('/api/containers?all=true'),
+                fetch('/api/containers/stats')
+            ]);
 
-            const containers = await response.json();
+            if (!containersRes.ok) throw new Error('Failed to load containers');
+
+            const containers = await containersRes.json();
+            let stats = [];
+            if (statsRes.ok) {
+                stats = await statsRes.json() || [];
+            }
+
+            // Create stats map by container ID
+            const statsMap = {};
+            stats.forEach(s => {
+                statsMap[s.ContainerID] = s;
+            });
 
             if (!containers || containers.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5">No containers found</td></tr>';
                 return;
             }
 
-            tbody.innerHTML = containers.map(c => `
+            tbody.innerHTML = containers.map(c => {
+                const id = c.Id || c.ID;
+                const stat = statsMap[id];
+                const statsDisplay = stat
+                    ? `${stat.CPU.toFixed(1)}% / ${this.formatBytes(stat.MemUsage)}`
+                    : (c.State === 'running' ? '...' : '-');
+
+                return `
                 <tr>
                     <td class="truncate">${this.getContainerName(c)}</td>
                     <td class="truncate">${c.Image}</td>
                     <td><span class="status ${c.State}">${c.State}</span></td>
-                    <td>${this.formatCreatedAt(c.Created)}</td>
+                    <td class="stats-cell">${statsDisplay}</td>
                     <td class="actions">
                         ${this.getContainerActions(c)}
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
         } catch (error) {
             tbody.innerHTML = '<tr><td colspan="5">Error loading containers</td></tr>';
             this.showToast('Failed to load containers', 'error');
@@ -475,39 +497,68 @@ const App = {
     getContainerActions(container) {
         const isAdmin = this.user && this.user.role === 'admin';
         const id = container.Id || container.ID;
-        let actions = `<button class="btn btn-small" onclick="App.viewLogs('${id}')">Logs</button>`;
+
+        let menuItems = `<button class="dropdown-item" onclick="App.viewLogs('${id}')">Logs</button>`;
 
         if (isAdmin) {
             if (container.State === 'running') {
-                actions += `<button class="btn btn-small" onclick="App.openTerminal('${id}')">Terminal</button>`;
-                actions += `<button class="btn btn-small" onclick="App.stopContainer('${id}')">Stop</button>`;
-                actions += `<button class="btn btn-small" onclick="App.restartContainer('${id}')">Restart</button>`;
+                menuItems += `<button class="dropdown-item" onclick="App.openTerminal('${id}')">Terminal</button>`;
+                menuItems += `<div class="dropdown-divider"></div>`;
+                menuItems += `<button class="dropdown-item" onclick="App.stopContainer('${id}')">Stop</button>`;
+                menuItems += `<button class="dropdown-item" onclick="App.restartContainer('${id}')">Restart</button>`;
             } else {
-                actions += `<button class="btn btn-small btn-success" onclick="App.startContainer('${id}')">Start</button>`;
+                menuItems += `<div class="dropdown-divider"></div>`;
+                menuItems += `<button class="dropdown-item" onclick="App.startContainer('${id}')">Start</button>`;
             }
-            actions += `
-                <div class="dropdown">
-                    <button class="btn btn-small" onclick="App.toggleDropdown(this)">...</button>
-                    <div class="dropdown-menu">
-                        <button class="dropdown-item btn-danger" onclick="App.removeContainer('${id}')">Remove</button>
-                    </div>
-                </div>`;
+            menuItems += `<div class="dropdown-divider"></div>`;
+            menuItems += `<button class="dropdown-item btn-danger" onclick="App.removeContainer('${id}')">Remove</button>`;
         }
 
-        return actions;
+        return `
+            <div class="dropdown">
+                <button class="btn btn-small btn-icon" onclick="App.toggleDropdown(this)">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                        <circle cx="12" cy="5" r="2"/>
+                        <circle cx="12" cy="12" r="2"/>
+                        <circle cx="12" cy="19" r="2"/>
+                    </svg>
+                </button>
+                <div class="dropdown-menu">
+                    ${menuItems}
+                </div>
+            </div>`;
     },
 
     // Toggle dropdown menu
     toggleDropdown(btn) {
         const dropdown = btn.parentElement;
+        const menu = dropdown.querySelector('.dropdown-menu');
         const isOpen = dropdown.classList.contains('open');
 
         // Close all dropdowns
-        document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+        document.querySelectorAll('.dropdown.open').forEach(d => {
+            d.classList.remove('open');
+        });
 
         // Toggle current
         if (!isOpen) {
             dropdown.classList.add('open');
+
+            // Position the menu
+            const btnRect = btn.getBoundingClientRect();
+            const menuHeight = menu.offsetHeight || 200;
+            const spaceBelow = window.innerHeight - btnRect.bottom;
+
+            menu.style.right = (window.innerWidth - btnRect.right) + 'px';
+
+            // Show above or below depending on space
+            if (spaceBelow < menuHeight && btnRect.top > menuHeight) {
+                menu.style.top = 'auto';
+                menu.style.bottom = (window.innerHeight - btnRect.top) + 'px';
+            } else {
+                menu.style.top = btnRect.bottom + 'px';
+                menu.style.bottom = 'auto';
+            }
         }
     },
 
@@ -863,22 +914,6 @@ const App = {
         if (!timestamp) return '-';
         const date = new Date(timestamp * 1000);
         return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-    },
-
-    formatCreatedAt(value) {
-        if (!value) return '-';
-        // If it's a string (ISO date or similar), parse directly
-        if (typeof value === 'string') {
-            const date = new Date(value);
-            if (isNaN(date.getTime())) return value; // Return raw if can't parse
-            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-        }
-        // If it's a number (unix timestamp)
-        if (typeof value === 'number') {
-            const date = new Date(value * 1000);
-            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-        }
-        return '-';
     }
 };
 

@@ -75,6 +75,7 @@ func (s *Server) setupRoutes() {
 
 		// Containers
 		r.Get("/api/containers", containerHandler.List)
+		r.Get("/api/containers/stats", containerHandler.Stats)
 		r.Post("/api/containers", containerHandler.Create)
 		r.Get("/api/containers/{id}", containerHandler.Inspect)
 		r.Get("/api/containers/{id}/logs", containerHandler.Logs)

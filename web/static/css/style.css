@@ -122,6 +122,17 @@ body {
     font-size: 12px;
 }
 
+.btn-icon {
+    padding: 6px 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon svg {
+    display: block;
+}
+
 .btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
@@ -747,7 +758,7 @@ body {
         font-size: 16px;
     }
 
-    /* Tables - horizontal scroll */
+    /* Tables - smaller min-width on mobile */
     .data-table {
         min-width: 450px;
     }
@@ -982,6 +993,13 @@ body.is-admin .page-actions .admin-only {
     white-space: nowrap;
 }
 
+/* Stats cell */
+.stats-cell {
+    font-family: monospace;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
 /* ID display */
 .id-short {
     font-family: monospace;
@@ -1003,15 +1021,13 @@ body.is-admin .page-actions .admin-only {
 
 .dropdown-menu {
     display: none;
-    position: absolute;
-    right: 0;
-    top: 100%;
+    position: fixed;
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: 4px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     min-width: 120px;
-    z-index: 100;
+    z-index: 1000;
 }
 
 .dropdown.open .dropdown-menu {
@@ -1039,6 +1055,12 @@ body.is-admin .page-actions .admin-only {
 
 .dropdown-item.btn-danger:hover {
     background: #ffeaea;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
 }
 
 /* Temperatures grid */

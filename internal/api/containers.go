@@ -35,6 +35,17 @@ func (h *ContainerHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, containers)
 }
 
+// Stats handles GET /api/containers/stats
+func (h *ContainerHandler) Stats(w http.ResponseWriter, r *http.Request) {
+	stats, err := h.client.GetContainersStats(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}
+
 // Inspect handles GET /api/containers/{id}
 func (h *ContainerHandler) Inspect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

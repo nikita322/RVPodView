@@ -142,7 +142,6 @@ type Container struct {
 	Image   string   `json:"Image"`
 	ImageID string   `json:"ImageID"`
 	Command []string `json:"Command"`
-	Created string   `json:"Created"`
 	State   string   `json:"State"`
 	Status  string   `json:"Status"`
 	Ports   []Port   `json:"Ports"`
@@ -196,6 +195,38 @@ func (c *Client) InspectContainer(ctx context.Context, id string) (*ContainerIns
 	var info ContainerInspect
 	err := c.get(ctx, fmt.Sprintf("/v4.0.0/libpod/containers/%s/json", id), &info)
 	return &info, err
+}
+
+// ContainerStats represents resource usage statistics for a container
+type ContainerStats struct {
+	ContainerID string  `json:"ContainerID"`
+	Name        string  `json:"Name"`
+	CPU         float64 `json:"CPU"`
+	MemUsage    uint64  `json:"MemUsage"`
+	MemLimit    uint64  `json:"MemLimit"`
+	MemPerc     float64 `json:"MemPerc"`
+}
+
+// GetContainersStats returns stats for all running containers
+func (c *Client) GetContainersStats(ctx context.Context) ([]ContainerStats, error) {
+	resp, err := c.request(ctx, http.MethodGet, "/v4.0.0/libpod/containers/stats?stream=false", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("API error %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Stats []ContainerStats `json:"Stats"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Stats, nil
 }
 
 // StartContainer starts a container
