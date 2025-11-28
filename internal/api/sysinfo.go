@@ -2,7 +2,9 @@ package api
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -151,29 +153,57 @@ func getNVMeTemperatures() []Temperature {
 	}
 
 	for _, entry := range entries {
-		// Try hwmon under nvme device
-		hwmonPath := filepath.Join(nvmePath, entry.Name(), "hwmon")
+		deviceName := entry.Name()
+		var temp *Temperature
+
+		// Method 1: Try hwmon under nvme device (works on some systems)
+		hwmonPath := filepath.Join(nvmePath, deviceName, "hwmon")
 		hwmonEntries, err := os.ReadDir(hwmonPath)
-		if err != nil {
-			continue
+		if err == nil {
+			for _, hw := range hwmonEntries {
+				tempFile := filepath.Join(hwmonPath, hw.Name(), "temp1_input")
+				tempBytes, err := os.ReadFile(tempFile)
+				if err != nil {
+					continue
+				}
+
+				tempMilliC, err := strconv.ParseInt(strings.TrimSpace(string(tempBytes)), 10, 64)
+				if err != nil {
+					continue
+				}
+
+				temp = &Temperature{
+					Label: "NVMe " + deviceName,
+					Temp:  float64(tempMilliC) / 1000.0,
+				}
+				break
+			}
 		}
 
-		for _, hw := range hwmonEntries {
-			tempFile := filepath.Join(hwmonPath, hw.Name(), "temp1_input")
-			tempBytes, err := os.ReadFile(tempFile)
-			if err != nil {
-				continue
+		// Method 2: Use nvme smart-log command (fallback)
+		if temp == nil {
+			devicePath := "/dev/" + deviceName
+			if _, err := os.Stat(devicePath); err == nil {
+				cmd := exec.Command("nvme", "smart-log", devicePath)
+				output, err := cmd.Output()
+				if err == nil {
+					// Parse: temperature                             : 53 °C (326 K)
+					re := regexp.MustCompile(`temperature\s*:\s*(\d+)\s*°?C`)
+					matches := re.FindStringSubmatch(string(output))
+					if len(matches) >= 2 {
+						if tempC, err := strconv.ParseFloat(matches[1], 64); err == nil {
+							temp = &Temperature{
+								Label: "NVMe " + deviceName,
+								Temp:  tempC,
+							}
+						}
+					}
+				}
 			}
+		}
 
-			tempMilliC, err := strconv.ParseInt(strings.TrimSpace(string(tempBytes)), 10, 64)
-			if err != nil {
-				continue
-			}
-
-			temps = append(temps, Temperature{
-				Label: "NVMe " + entry.Name(),
-				Temp:  float64(tempMilliC) / 1000.0,
-			})
+		if temp != nil {
+			temps = append(temps, *temp)
 		}
 	}
 
