@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RVPodView</title>
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+</head>
+<body>
+    <!-- Login Page -->
+    <div id="login-page" class="page">
+        <div class="login-container">
+            <h1>RVPodView</h1>
+            <p class="subtitle">Podman Management</p>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary">Login</button>
+                <div id="login-error" class="error"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="page hidden">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <img src="/static/img/logo.svg" alt="RVPodView" class="logo-icon">
+                <h2>RVPodView</h2>
+            </div>
+            <nav>
+                <a href="#" class="nav-item active" data-page="dashboard">Dashboard</a>
+                <a href="#" class="nav-item" data-page="containers">Containers</a>
+                <a href="#" class="nav-item" data-page="images">Images</a>
+                <a href="#" class="nav-item admin-only" data-page="terminal">Terminal</a>
+            </nav>
+            <div class="user-info">
+                <span id="current-user"></span>
+                <span id="user-role" class="badge"></span>
+                <button id="logout-btn" class="btn btn-small">Logout</button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Page -->
+            <section id="page-dashboard" class="content-page">
+                <h1>Dashboard</h1>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-containers">-</div>
+                        <div class="stat-label">Containers</div>
+                        <div class="stat-detail">
+                            <span class="running" id="stat-running">0 running</span>
+                            <span class="stopped" id="stat-stopped">0 stopped</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-images">-</div>
+                        <div class="stat-label">Images</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-volumes">-</div>
+                        <div class="stat-label">Volumes</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-networks">-</div>
+                        <div class="stat-label">Networks</div>
+                    </div>
+                </div>
+
+                <div class="info-section">
+                    <h2>System Info</h2>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">Hostname:</span>
+                            <span class="info-value" id="info-hostname">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">OS:</span>
+                            <span class="info-value" id="info-os">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Kernel:</span>
+                            <span class="info-value" id="info-kernel">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Architecture:</span>
+                            <span class="info-value" id="info-arch">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Podman Version:</span>
+                            <span class="info-value" id="info-podman">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Memory:</span>
+                            <span class="info-value" id="info-memory">-</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">CPU Usage:</span>
+                            <span class="info-value" id="info-cpu">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-section" id="temps-section" style="margin-top: 20px;">
+                    <h2>Temperatures</h2>
+                    <div class="temps-grid" id="temps-grid">
+                        <span class="info-value">-</span>
+                    </div>
+                </div>
+
+                <div class="info-section admin-only" style="margin-top: 20px;">
+                    <h2>Maintenance</h2>
+                    <p style="margin-bottom: 16px; color: var(--text-light);">Remove unused containers, images, and volumes to free up disk space.</p>
+                    <button id="system-prune-btn" class="btn btn-danger">System Prune</button>
+                </div>
+            </section>
+
+            <!-- Containers Page -->
+            <section id="page-containers" class="content-page hidden">
+                <div class="page-header">
+                    <h1>Containers</h1>
+                    <div class="page-actions">
+                        <button id="create-container-btn" class="btn btn-primary admin-only">Create Container</button>
+                        <button id="refresh-containers" class="btn">Refresh</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Image</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="containers-list">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Images Page -->
+            <section id="page-images" class="content-page hidden">
+                <div class="page-header">
+                    <h1>Images</h1>
+                    <div class="page-actions">
+                        <button id="pull-image-btn" class="btn btn-primary admin-only">Pull Image</button>
+                        <button id="refresh-images" class="btn">Refresh</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Repository</th>
+                                <th>Tag</th>
+                                <th>ID</th>
+                                <th>Size</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="images-list">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Terminal Page -->
+            <section id="page-terminal" class="content-page hidden">
+                <div class="page-header">
+                    <h1>Host Terminal</h1>
+                </div>
+                <div id="host-terminal-container" class="host-terminal-container"></div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Modal for Pull Image -->
+    <div id="modal-pull" class="modal hidden">
+        <div class="modal-content">
+            <h2>Pull Image</h2>
+            <form id="pull-form">
+                <div class="form-group">
+                    <label for="image-reference">Image Reference</label>
+                    <input type="text" id="image-reference" placeholder="e.g., docker.io/library/alpine:latest" required>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeModal('modal-pull')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Pull</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal for Logs -->
+    <div id="modal-logs" class="modal hidden">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>Container Logs</h2>
+                <button type="button" class="btn-close" onclick="closeModal('modal-logs')">&times;</button>
+            </div>
+            <pre id="logs-content" class="logs-viewer"></pre>
+        </div>
+    </div>
+
+    <!-- Modal for Create Container -->
+    <div id="modal-create-container" class="modal hidden">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>Create Container</h2>
+                <button type="button" class="btn-close" onclick="closeModal('modal-create-container')">&times;</button>
+            </div>
+            <form id="create-container-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="container-image">Image *</label>
+                        <input type="text" id="container-image" placeholder="e.g., docker.io/library/nginx:latest" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="container-name">Container Name</label>
+                        <input type="text" id="container-name" placeholder="e.g., my-nginx">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="container-ports">Ports (host:container, comma separated)</label>
+                    <input type="text" id="container-ports" placeholder="e.g., 8080:80, 443:443">
+                </div>
+                <div class="form-group">
+                    <label for="container-volumes">Volumes (host:container, comma separated)</label>
+                    <input type="text" id="container-volumes" placeholder="e.g., /data:/app/data, /config:/etc/config">
+                </div>
+                <div class="form-group">
+                    <label for="container-env">Environment Variables (KEY=value, comma separated)</label>
+                    <input type="text" id="container-env" placeholder="e.g., DEBUG=true, PORT=3000">
+                </div>
+                <div class="form-group">
+                    <label for="container-command">Command (optional)</label>
+                    <input type="text" id="container-command" placeholder="e.g., /bin/sh -c 'echo hello'">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="container-start"> Start container after creation
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="closeModal('modal-create-container')">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal for Terminal -->
+    <div id="modal-terminal" class="modal hidden">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>Terminal</h2>
+                <button type="button" class="btn-close" onclick="App.closeTerminal()">&times;</button>
+            </div>
+            <div id="terminal-container" class="terminal-container"></div>
+        </div>
+    </div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
