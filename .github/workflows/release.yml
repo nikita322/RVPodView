@@ -29,19 +29,18 @@ jobs:
 
       - name: Setup RISC-V cross-compilation
         run: |
+          # Add riscv64 architecture
+          sudo dpkg --add-architecture riscv64
+
+          # Add Ubuntu ports repository for riscv64
+          echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports noble main universe" | sudo tee /etc/apt/sources.list.d/riscv64.list
+
+          # Update package lists
           sudo apt-get update
+
+          # Install cross-compiler and riscv64 PAM libraries
           sudo apt-get install -y gcc-riscv64-linux-gnu
-
-          # Download riscv64 PAM libraries from Debian ports
-          mkdir -p riscv64-sysroot
-          cd riscv64-sysroot
-
-          # Download and extract libpam packages for riscv64
-          wget -q http://ftp.ports.debian.org/debian-ports/pool/main/p/pam/libpam0g_1.5.3-7_riscv64.deb
-          wget -q http://ftp.ports.debian.org/debian-ports/pool/main/p/pam/libpam0g-dev_1.5.3-7_riscv64.deb
-
-          dpkg-deb -x libpam0g_*.deb .
-          dpkg-deb -x libpam0g-dev_*.deb .
+          sudo apt-get install -y libpam0g-dev:riscv64
 
       - name: Download dependencies
         run: |
@@ -52,8 +51,7 @@ jobs:
         run: |
           CGO_ENABLED=1 GOOS=linux GOARCH=riscv64 \
             CC=riscv64-linux-gnu-gcc \
-            CGO_CFLAGS="-I$PWD/riscv64-sysroot/usr/include" \
-            CGO_LDFLAGS="-L$PWD/riscv64-sysroot/lib/riscv64-linux-gnu -L$PWD/riscv64-sysroot/usr/lib/riscv64-linux-gnu" \
+            PKG_CONFIG_PATH=/usr/lib/riscv64-linux-gnu/pkgconfig \
             go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o rvpodview ./cmd/rvpodview
 
           tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz rvpodview web/
