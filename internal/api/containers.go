@@ -22,26 +22,49 @@ func NewContainerHandler(client *podman.Client) *ContainerHandler {
 	return &ContainerHandler{client: client}
 }
 
-// List handles GET /api/containers
-func (h *ContainerHandler) List(w http.ResponseWriter, r *http.Request) {
-	containers, err := h.client.ListContainers(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, containers)
+// ContainerWithStats extends Container with resource stats
+type ContainerWithStats struct {
+	ID       string   `json:"Id"`
+	Names    []string `json:"Names"`
+	Image    string   `json:"Image"`
+	State    string   `json:"State"`
+	CPU      float64  `json:"CPU"`
+	MemUsage uint64   `json:"MemUsage"`
 }
 
-// Stats handles GET /api/containers/stats
-func (h *ContainerHandler) Stats(w http.ResponseWriter, r *http.Request) {
-	stats, err := h.client.GetContainersStats(r.Context())
+// List handles GET /api/containers
+func (h *ContainerHandler) List(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	containers, err := h.client.ListContainers(ctx)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, stats)
+	// Get stats for running containers
+	stats, _ := h.client.GetContainersStats(ctx)
+	statsMap := make(map[string]*podman.ContainerStats)
+	for i := range stats {
+		statsMap[stats[i].ContainerID] = &stats[i]
+	}
+
+	// Build response with stats
+	result := make([]ContainerWithStats, len(containers))
+	for i, c := range containers {
+		result[i] = ContainerWithStats{
+			ID:    c.ID,
+			Names: c.Names,
+			Image: c.Image,
+			State: c.State,
+		}
+		if stat := statsMap[c.ID]; stat != nil {
+			result[i].CPU = stat.CPU
+			result[i].MemUsage = stat.MemUsage
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Inspect handles GET /api/containers/{id}

@@ -314,6 +314,16 @@ body {
     color: #333;
 }
 
+.badge.in-use {
+    background: var(--success);
+    color: white;
+}
+
+.badge.unused {
+    background: var(--text-light);
+    color: white;
+}
+
 /* Logout button */
 .btn-logout {
     display: flex;
@@ -662,6 +672,10 @@ body {
 
 .toast.error {
     border-left: 4px solid var(--danger);
+}
+
+.toast.info {
+    border-left: 4px solid var(--primary);
 }
 
 @keyframes slideIn {

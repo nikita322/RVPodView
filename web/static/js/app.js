@@ -530,25 +530,10 @@ const App = {
         tbody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
 
         try {
-            // Load containers and stats in parallel
-            const [containersRes, statsRes] = await Promise.all([
-                this.authFetch('/api/containers'),
-                this.authFetch('/api/containers/stats')
-            ]);
+            const response = await this.authFetch('/api/containers');
+            if (!response.ok) throw new Error('Failed to load containers');
 
-            if (!containersRes.ok) throw new Error('Failed to load containers');
-
-            const containers = await containersRes.json();
-            let stats = [];
-            if (statsRes.ok) {
-                stats = await statsRes.json() || [];
-            }
-
-            // Create stats map by container ID
-            const statsMap = {};
-            stats.forEach(s => {
-                statsMap[s.ContainerID] = s;
-            });
+            const containers = await response.json();
 
             if (!containers || containers.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5">No containers found</td></tr>';
@@ -557,10 +542,9 @@ const App = {
 
             tbody.innerHTML = containers.map(c => {
                 const id = c.Id || c.ID;
-                const stat = statsMap[id];
-                const statsDisplay = stat
-                    ? `${stat.CPU.toFixed(1)}% / ${this.formatBytes(stat.MemUsage)}`
-                    : (c.State === 'running' ? '...' : '-');
+                const statsDisplay = c.State === 'running'
+                    ? `${c.CPU.toFixed(1)}% / ${this.formatBytes(c.MemUsage)}`
+                    : '-';
 
                 return `
                 <tr>
@@ -724,7 +708,7 @@ const App = {
     // Load images list
     async loadImages() {
         const tbody = document.getElementById('images-list');
-        tbody.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
 
         try {
             const response = await this.authFetch('/api/images');
@@ -733,7 +717,7 @@ const App = {
             const images = await response.json();
 
             if (!images || images.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6">No images found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7">No images found</td></tr>';
                 return;
             }
 
@@ -743,6 +727,9 @@ const App = {
                 const shortId = imgId.substring(0, 12);
                 const displayRepo = repo === '<none>' ? `<span class="text-muted">&lt;none&gt;</span>` : repo;
                 const displayTag = tag === '<none>' ? `<span class="text-muted">&lt;none&gt;</span>` : tag;
+                const usageStatus = img.InUse
+                    ? '<span class="badge in-use">In Use</span>'
+                    : '<span class="badge unused">Unused</span>';
                 return `
                     <tr>
                         <td class="truncate">${displayRepo}</td>
@@ -750,6 +737,7 @@ const App = {
                         <td class="id-short">${shortId}</td>
                         <td>${this.formatBytes(img.Size)}</td>
                         <td>${this.formatDate(img.Created)}</td>
+                        <td>${usageStatus}</td>
                         <td class="actions">
                             ${this.user && this.user.role === 'admin'
                                 ? `<div class="dropdown">
@@ -765,7 +753,7 @@ const App = {
             }).join('');
         } catch (error) {
             if (error.message !== 'Session expired') {
-                tbody.innerHTML = '<tr><td colspan="6">Error loading images</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7">Error loading images</td></tr>';
                 this.showToast('Failed to load images', 'error');
             }
         }
@@ -814,6 +802,7 @@ const App = {
     // Remove image
     removeImage(id) {
         this.confirmAction('Remove Image', 'Are you sure you want to remove this image?', async () => {
+            this.showToast('Removing image...', 'info');
             try {
                 const response = await this.authFetch(`/api/images/${id}?force=true`, { method: 'DELETE' });
                 if (!response.ok) throw new Error('Failed to remove image');

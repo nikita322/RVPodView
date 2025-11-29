@@ -20,16 +20,36 @@ func NewSystemHandler(client *podman.Client) *SystemHandler {
 
 // DashboardInfo represents dashboard summary
 type DashboardInfo struct {
-	System     *podman.SystemInfo `json:"system"`
-	HostStats  *HostStats         `json:"hostStats"`
-	Containers ContainerStats     `json:"containers"`
-	Images     int                `json:"images"`
-	Volumes    int                `json:"volumes"`
-	Networks   int                `json:"networks"`
+	System     *DashboardSystemInfo `json:"system"`
+	HostStats  *HostStats           `json:"hostStats"`
+	Containers ContainerCounts      `json:"containers"`
+	Images     int                  `json:"images"`
+	Volumes    int                  `json:"volumes"`
+	Networks   int                  `json:"networks"`
 }
 
-// ContainerStats represents container statistics
-type ContainerStats struct {
+// DashboardSystemInfo contains only used system fields
+type DashboardSystemInfo struct {
+	Host    DashboardHostInfo    `json:"host"`
+	Version DashboardVersionInfo `json:"version"`
+}
+
+// DashboardHostInfo contains only used host fields
+type DashboardHostInfo struct {
+	Arch     string `json:"arch"`
+	Hostname string `json:"hostname"`
+	Kernel   string `json:"kernel"`
+	MemTotal int64  `json:"memTotal"`
+	MemFree  int64  `json:"memFree"`
+}
+
+// DashboardVersionInfo contains only used version fields
+type DashboardVersionInfo struct {
+	Version string `json:"Version"`
+}
+
+// ContainerCounts represents container count statistics
+type ContainerCounts struct {
 	Total   int `json:"total"`
 	Running int `json:"running"`
 	Stopped int `json:"stopped"`
@@ -47,18 +67,18 @@ func (h *SystemHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get containers count
-	containers, err := h.client.ListContainers(ctx, true)
+	containers, err := h.client.ListContainers(ctx)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
-	containerStats := ContainerStats{Total: len(containers)}
+	containerCounts := ContainerCounts{Total: len(containers)}
 	for _, c := range containers {
 		if c.State == "running" {
-			containerStats.Running++
+			containerCounts.Running++
 		} else {
-			containerStats.Stopped++
+			containerCounts.Stopped++
 		}
 	}
 
@@ -84,10 +104,24 @@ func (h *SystemHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	// Get host stats (CPU, temperatures)
 	hostStats := GetHostStats()
 
+	// Build optimized system info with only used fields
+	systemInfo := &DashboardSystemInfo{
+		Host: DashboardHostInfo{
+			Arch:     sysInfo.Host.Arch,
+			Hostname: sysInfo.Host.Hostname,
+			Kernel:   sysInfo.Host.Kernel,
+			MemTotal: sysInfo.Host.MemTotal,
+			MemFree:  sysInfo.Host.MemFree,
+		},
+		Version: DashboardVersionInfo{
+			Version: sysInfo.Version.Version,
+		},
+	}
+
 	dashboard := DashboardInfo{
-		System:     sysInfo,
+		System:     systemInfo,
 		HostStats:  hostStats,
-		Containers: containerStats,
+		Containers: containerCounts,
 		Images:     len(images),
 		Volumes:    len(volumes),
 		Networks:   len(networks),

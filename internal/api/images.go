@@ -20,6 +20,15 @@ func NewImageHandler(client *podman.Client) *ImageHandler {
 	return &ImageHandler{client: client}
 }
 
+// ImageWithUsage extends Image with usage info
+type ImageWithUsage struct {
+	ID       string   `json:"Id"`
+	RepoTags []string `json:"RepoTags"`
+	Created  int64    `json:"Created"`
+	Size     int64    `json:"Size"`
+	InUse    bool     `json:"InUse"`
+}
+
 // List handles GET /api/images
 func (h *ImageHandler) List(w http.ResponseWriter, r *http.Request) {
 	images, err := h.client.ListImages(r.Context())
@@ -28,7 +37,28 @@ func (h *ImageHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, images)
+	// Get containers to check which images are in use
+	containers, _ := h.client.ListContainers(r.Context())
+	usedImageIDs := make(map[string]bool)
+	for _, c := range containers {
+		if c.ImageID != "" {
+			usedImageIDs[c.ImageID] = true
+		}
+	}
+
+	// Build response with usage info
+	result := make([]ImageWithUsage, len(images))
+	for i, img := range images {
+		result[i] = ImageWithUsage{
+			ID:       img.ID,
+			RepoTags: img.RepoTags,
+			Created:  img.Created,
+			Size:     img.Size,
+			InUse:    usedImageIDs[img.ID],
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Inspect handles GET /api/images/{id}
