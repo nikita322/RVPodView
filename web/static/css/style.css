@@ -122,14 +122,14 @@ body {
     font-size: 12px;
 }
 
-.btn-icon {
+.btn-icon-only {
     padding: 6px 8px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
 }
 
-.btn-icon svg {
+.btn-icon-only svg {
     display: block;
 }
 
@@ -267,26 +267,14 @@ body {
 }
 
 .btn-logout .btn-icon {
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     flex-shrink: 0;
+    display: block;
 }
 
 .btn-logout .btn-text {
     font-size: 13px;
-}
-
-/* Button with icon */
-.btn .btn-icon {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-}
-
-.btn:has(.btn-icon) {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
 }
 
 /* Main Content */
@@ -691,12 +679,6 @@ body {
 
     .btn-logout .btn-text {
         display: none;
-    }
-
-    .btn-logout .btn-icon {
-        width: 18px;
-        height: 18px;
-        margin: 0;
     }
 
     .main-content {

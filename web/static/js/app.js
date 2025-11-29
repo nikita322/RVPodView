@@ -517,7 +517,7 @@ const App = {
 
         return `
             <div class="dropdown">
-                <button class="btn btn-small btn-icon" onclick="App.toggleDropdown(this)">
+                <button class="btn btn-small btn-icon-only" onclick="App.toggleDropdown(this)">
                     <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
                         <circle cx="12" cy="5" r="2"/>
                         <circle cx="12" cy="12" r="2"/>
