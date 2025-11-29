@@ -23,14 +23,25 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Install cross-compiler
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-riscv64-linux-gnu libpam0g-dev
-
       - name: Get version
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Setup RISC-V cross-compilation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-linux-gnu
+
+          # Download riscv64 PAM libraries from Debian ports
+          mkdir -p riscv64-sysroot
+          cd riscv64-sysroot
+
+          # Download and extract libpam packages for riscv64
+          wget -q http://ftp.ports.debian.org/debian-ports/pool/main/p/pam/libpam0g_1.5.3-7_riscv64.deb
+          wget -q http://ftp.ports.debian.org/debian-ports/pool/main/p/pam/libpam0g-dev_1.5.3-7_riscv64.deb
+
+          dpkg-deb -x libpam0g_*.deb .
+          dpkg-deb -x libpam0g-dev_*.deb .
 
       - name: Download dependencies
         run: |
@@ -39,7 +50,12 @@ jobs:
 
       - name: Build for RISC-V 64-bit
         run: |
-          CGO_ENABLED=1 GOOS=linux GOARCH=riscv64 CC=riscv64-linux-gnu-gcc go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o rvpodview ./cmd/rvpodview
+          CGO_ENABLED=1 GOOS=linux GOARCH=riscv64 \
+            CC=riscv64-linux-gnu-gcc \
+            CGO_CFLAGS="-I$PWD/riscv64-sysroot/usr/include" \
+            CGO_LDFLAGS="-L$PWD/riscv64-sysroot/lib/riscv64-linux-gnu -L$PWD/riscv64-sysroot/usr/lib/riscv64-linux-gnu" \
+            go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o rvpodview ./cmd/rvpodview
+
           tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz rvpodview web/
 
       - name: Create Release
