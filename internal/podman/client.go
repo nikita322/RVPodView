@@ -318,7 +318,100 @@ func (c *Client) GetContainerLogs(ctx context.Context, id string, tail int) (str
 	if err != nil {
 		return "", err
 	}
-	return string(body), nil
+
+	// Parse multiplexed stream and reverse order (newest first)
+	lines := parseContainerLogs(body)
+
+	// Reverse lines order (newest first)
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+
+	// Strip ANSI escape codes
+	result := strings.Join(lines, "\n")
+	result = stripAnsiCodes(result)
+
+	return result, nil
+}
+
+// stripAnsiCodes removes ANSI escape sequences from string
+func stripAnsiCodes(s string) string {
+	// Match ANSI escape sequences: ESC[ ... m (colors, styles)
+	// and ESC[ ... other control codes
+	result := make([]byte, 0, len(s))
+	i := 0
+	for i < len(s) {
+		if i+1 < len(s) && s[i] == '\x1b' && s[i+1] == '[' {
+			// Skip until we find the terminating character
+			j := i + 2
+			for j < len(s) {
+				c := s[j]
+				if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+					j++
+					break
+				}
+				j++
+			}
+			i = j
+		} else {
+			result = append(result, s[i])
+			i++
+		}
+	}
+	return string(result)
+}
+
+// parseContainerLogs parses multiplexed log stream
+// Each frame: [1 byte type][3 bytes padding][4 bytes size BE][payload]
+func parseContainerLogs(data []byte) []string {
+	var lines []string
+	pos := 0
+
+	for pos < len(data) {
+		// Need at least 8 bytes for header
+		if pos+8 > len(data) {
+			// Remaining data without header - treat as plain text
+			remaining := strings.TrimSpace(string(data[pos:]))
+			if remaining != "" {
+				lines = append(lines, strings.Split(remaining, "\n")...)
+			}
+			break
+		}
+
+		// Check if this looks like a multiplexed header (type byte 0-2)
+		streamType := data[pos]
+		if streamType > 2 {
+			// Not a valid header - treat rest as plain text
+			remaining := strings.TrimSpace(string(data[pos:]))
+			if remaining != "" {
+				lines = append(lines, strings.Split(remaining, "\n")...)
+			}
+			break
+		}
+
+		// Read payload size (big endian uint32 at offset 4)
+		size := int(data[pos+4])<<24 | int(data[pos+5])<<16 | int(data[pos+6])<<8 | int(data[pos+7])
+
+		// Sanity check size
+		if size < 0 || pos+8+size > len(data) {
+			remaining := strings.TrimSpace(string(data[pos:]))
+			if remaining != "" {
+				lines = append(lines, strings.Split(remaining, "\n")...)
+			}
+			break
+		}
+
+		// Extract payload
+		payload := string(data[pos+8 : pos+8+size])
+		payload = strings.TrimRight(payload, "\n\r")
+		if payload != "" {
+			lines = append(lines, payload)
+		}
+
+		pos += 8 + size
+	}
+
+	return lines
 }
 
 // Image types
