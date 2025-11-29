@@ -77,6 +77,24 @@ body {
     border-color: var(--primary);
 }
 
+.checkbox-group {
+    margin-bottom: 16px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-light);
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: auto;
+    margin-right: 8px;
+    cursor: pointer;
+}
+
 .error {
     color: var(--danger);
     margin-top: 10px;
@@ -1114,16 +1132,30 @@ body.is-admin .page-actions .admin-only {
     font-weight: 600;
 }
 
+.temp-value.cool {
+    color: #4ecdc4; /* cyan - excellent */
+}
+
 .temp-value.normal {
-    color: var(--success);
+    color: var(--success); /* green - good */
 }
 
 .temp-value.warm {
-    color: var(--warning);
+    color: var(--warning); /* yellow - attention */
 }
 
 .temp-value.hot {
-    color: var(--danger);
+    color: #ff6b35; /* orange - needs cooling */
+}
+
+.temp-value.critical {
+    color: var(--danger); /* red - throttling */
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 /* Form rows */

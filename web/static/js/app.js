@@ -12,6 +12,20 @@ const App = {
     autoRefreshIntervals: {},
     autoRefreshDelay: 5000, // 5 seconds
 
+    // Authenticated fetch - handles 401 by redirecting to login
+    async authFetch(url, options = {}) {
+        const response = await fetch(url, options);
+        if (response.status === 401) {
+            // Session expired or logged out
+            this.user = null;
+            this.pauseAllAutoRefresh();
+            document.getElementById('app').classList.add('hidden');
+            document.getElementById('login-page').classList.remove('hidden');
+            throw new Error('Session expired');
+        }
+        return response;
+    },
+
     // Initialize application
     async init() {
         this.bindEvents();
@@ -75,8 +89,10 @@ const App = {
                 // Tab is hidden - pause all auto-refresh
                 this.pauseAllAutoRefresh();
             } else {
-                // Tab is visible - resume auto-refresh for current page
-                this.resumeAutoRefresh();
+                // Tab is visible - resume auto-refresh for current page (only if logged in)
+                if (this.user) {
+                    this.resumeAutoRefresh();
+                }
             }
         });
     },
@@ -92,7 +108,8 @@ const App = {
             } else {
                 this.showLogin();
             }
-        } catch (error) {
+        } catch {
+            // Network error or server unavailable - silently show login
             this.showLogin();
         }
     },
@@ -101,13 +118,14 @@ const App = {
     async login() {
         const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
+        const remember = document.getElementById('remember-me').checked;
         const errorEl = document.getElementById('login-error');
 
         try {
             const response = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password, remember })
             });
 
             const data = await response.json();
@@ -138,6 +156,10 @@ const App = {
         document.getElementById('login-page').classList.remove('hidden');
         document.getElementById('app').classList.add('hidden');
         document.body.classList.remove('is-admin');
+        // Clear login form
+        document.getElementById('username').value = '';
+        document.getElementById('password').value = '';
+        document.getElementById('login-error').textContent = '';
     },
 
     // Show main app
@@ -427,7 +449,7 @@ const App = {
     // Load dashboard data
     async loadDashboard() {
         try {
-            const response = await fetch('/api/system/dashboard');
+            const response = await this.authFetch('/api/system/dashboard');
             if (!response.ok) throw new Error('Failed to load dashboard');
 
             const data = await response.json();
@@ -472,7 +494,14 @@ const App = {
                 const tempsGrid = document.getElementById('temps-grid');
                 if (data.hostStats.temperatures && data.hostStats.temperatures.length > 0) {
                     tempsGrid.innerHTML = data.hostStats.temperatures.map(t => {
-                        const tempClass = t.temp < 50 ? 'normal' : (t.temp < 70 ? 'warm' : 'hot');
+                        // Temperature thresholds for Orange Pi RV2 (SpacemiT K1)
+                        // < 50°C = cool (excellent), 50-65°C = normal, 65-75°C = warm, 75-85°C = hot, > 85°C = critical
+                        let tempClass = 'normal';
+                        if (t.temp < 50) tempClass = 'cool';
+                        else if (t.temp < 65) tempClass = 'normal';
+                        else if (t.temp < 75) tempClass = 'warm';
+                        else if (t.temp < 85) tempClass = 'hot';
+                        else tempClass = 'critical';
                         return `
                             <div class="temp-item">
                                 <span class="temp-label">${t.label}</span>
@@ -485,7 +514,7 @@ const App = {
                 }
             }
         } catch (error) {
-            this.showToast('Failed to load dashboard', 'error');
+            if (error.message !== 'Session expired') this.showToast('Failed to load dashboard', 'error');
         }
     },
 
@@ -497,8 +526,8 @@ const App = {
         try {
             // Load containers and stats in parallel
             const [containersRes, statsRes] = await Promise.all([
-                fetch('/api/containers?all=true'),
-                fetch('/api/containers/stats')
+                this.authFetch('/api/containers?all=true'),
+                this.authFetch('/api/containers/stats')
             ]);
 
             if (!containersRes.ok) throw new Error('Failed to load containers');
@@ -539,8 +568,10 @@ const App = {
                 </tr>
             `}).join('');
         } catch (error) {
-            tbody.innerHTML = '<tr><td colspan="5">Error loading containers</td></tr>';
-            this.showToast('Failed to load containers', 'error');
+            if (error.message !== 'Session expired') {
+                tbody.innerHTML = '<tr><td colspan="5">Error loading containers</td></tr>';
+                this.showToast('Failed to load containers', 'error');
+            }
         }
     },
 
@@ -625,46 +656,46 @@ const App = {
     // Container actions
     async startContainer(id) {
         try {
-            const response = await fetch(`/api/containers/${id}/start`, { method: 'POST' });
+            const response = await this.authFetch(`/api/containers/${id}/start`, { method: 'POST' });
             if (!response.ok) throw new Error('Failed to start container');
             this.showToast('Container started', 'success');
             this.loadContainers();
         } catch (error) {
-            this.showToast('Failed to start container', 'error');
+            if (error.message !== 'Session expired') this.showToast('Failed to start container', 'error');
         }
     },
 
     async stopContainer(id) {
         try {
-            const response = await fetch(`/api/containers/${id}/stop`, { method: 'POST' });
+            const response = await this.authFetch(`/api/containers/${id}/stop`, { method: 'POST' });
             if (!response.ok) throw new Error('Failed to stop container');
             this.showToast('Container stopped', 'success');
             this.loadContainers();
         } catch (error) {
-            this.showToast('Failed to stop container', 'error');
+            if (error.message !== 'Session expired') this.showToast('Failed to stop container', 'error');
         }
     },
 
     async restartContainer(id) {
         try {
-            const response = await fetch(`/api/containers/${id}/restart`, { method: 'POST' });
+            const response = await this.authFetch(`/api/containers/${id}/restart`, { method: 'POST' });
             if (!response.ok) throw new Error('Failed to restart container');
             this.showToast('Container restarted', 'success');
             this.loadContainers();
         } catch (error) {
-            this.showToast('Failed to restart container', 'error');
+            if (error.message !== 'Session expired') this.showToast('Failed to restart container', 'error');
         }
     },
 
     removeContainer(id) {
         this.confirmAction('Remove Container', 'Are you sure you want to remove this container?', async () => {
             try {
-                const response = await fetch(`/api/containers/${id}?force=true`, { method: 'DELETE' });
+                const response = await this.authFetch(`/api/containers/${id}?force=true`, { method: 'DELETE' });
                 if (!response.ok) throw new Error('Failed to remove container');
                 this.showToast('Container removed', 'success');
                 this.loadContainers();
             } catch (error) {
-                this.showToast('Failed to remove container', 'error');
+                if (error.message !== 'Session expired') this.showToast('Failed to remove container', 'error');
             }
         });
     },
@@ -675,12 +706,12 @@ const App = {
         this.showModal('modal-logs');
 
         try {
-            const response = await fetch(`/api/containers/${id}/logs?tail=200`);
+            const response = await this.authFetch(`/api/containers/${id}/logs?tail=200`);
             if (!response.ok) throw new Error('Failed to load logs');
             const data = await response.json();
             logsContent.textContent = data.logs || 'No logs available';
         } catch (error) {
-            logsContent.textContent = 'Error loading logs';
+            if (error.message !== 'Session expired') logsContent.textContent = 'Error loading logs';
         }
     },
 
@@ -690,7 +721,7 @@ const App = {
         tbody.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
 
         try {
-            const response = await fetch('/api/images');
+            const response = await this.authFetch('/api/images');
             if (!response.ok) throw new Error('Failed to load images');
 
             const images = await response.json();
@@ -727,8 +758,10 @@ const App = {
                 `;
             }).join('');
         } catch (error) {
-            tbody.innerHTML = '<tr><td colspan="6">Error loading images</td></tr>';
-            this.showToast('Failed to load images', 'error');
+            if (error.message !== 'Session expired') {
+                tbody.innerHTML = '<tr><td colspan="6">Error loading images</td></tr>';
+                this.showToast('Failed to load images', 'error');
+            }
         }
     },
 
@@ -752,7 +785,7 @@ const App = {
         btn.textContent = 'Pulling...';
 
         try {
-            const response = await fetch('/api/images/pull', {
+            const response = await this.authFetch('/api/images/pull', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ reference })
@@ -765,7 +798,7 @@ const App = {
             this.loadImages();
             document.getElementById('image-reference').value = '';
         } catch (error) {
-            this.showToast('Failed to pull image', 'error');
+            if (error.message !== 'Session expired') this.showToast('Failed to pull image', 'error');
         } finally {
             btn.disabled = false;
             btn.textContent = 'Pull';
@@ -776,12 +809,12 @@ const App = {
     removeImage(id) {
         this.confirmAction('Remove Image', 'Are you sure you want to remove this image?', async () => {
             try {
-                const response = await fetch(`/api/images/${id}?force=true`, { method: 'DELETE' });
+                const response = await this.authFetch(`/api/images/${id}?force=true`, { method: 'DELETE' });
                 if (!response.ok) throw new Error('Failed to remove image');
                 this.showToast('Image removed', 'success');
                 this.loadImages();
             } catch (error) {
-                this.showToast('Failed to remove image', 'error');
+                if (error.message !== 'Session expired') this.showToast('Failed to remove image', 'error');
             }
         });
     },
@@ -793,12 +826,12 @@ const App = {
         btn.textContent = 'Cleaning...';
 
         try {
-            const response = await fetch('/api/system/prune', { method: 'POST' });
+            const response = await this.authFetch('/api/system/prune', { method: 'POST' });
             if (!response.ok) throw new Error('Failed to prune system');
             this.showToast('System cleaned successfully', 'success');
             this.loadDashboard();
         } catch (error) {
-            this.showToast('Failed to prune system', 'error');
+            if (error.message !== 'Session expired') this.showToast('Failed to prune system', 'error');
         } finally {
             btn.disabled = false;
             btn.textContent = 'System Prune';
@@ -824,11 +857,11 @@ const App = {
         btn.textContent = 'Rebooting...';
 
         try {
-            const response = await fetch('/api/system/reboot', { method: 'POST' });
+            const response = await this.authFetch('/api/system/reboot', { method: 'POST' });
             if (!response.ok) throw new Error('Failed to reboot');
             this.showToast('System is rebooting...', 'success');
         } catch (error) {
-            this.showToast('Failed to reboot system', 'error');
+            if (error.message !== 'Session expired') this.showToast('Failed to reboot system', 'error');
             btn.disabled = false;
             btn.textContent = 'Reboot';
         }
@@ -841,11 +874,11 @@ const App = {
         btn.textContent = 'Shutting down...';
 
         try {
-            const response = await fetch('/api/system/shutdown', { method: 'POST' });
+            const response = await this.authFetch('/api/system/shutdown', { method: 'POST' });
             if (!response.ok) throw new Error('Failed to shutdown');
             this.showToast('System is shutting down...', 'success');
         } catch (error) {
-            this.showToast('Failed to shutdown system', 'error');
+            if (error.message !== 'Session expired') this.showToast('Failed to shutdown system', 'error');
             btn.disabled = false;
             btn.textContent = 'Shutdown';
         }
@@ -869,7 +902,7 @@ const App = {
         };
 
         try {
-            const response = await fetch('/api/containers', {
+            const response = await this.authFetch('/api/containers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
@@ -886,7 +919,7 @@ const App = {
             form.reset();
             this.loadContainers();
         } catch (error) {
-            this.showToast(error.message, 'error');
+            if (error.message !== 'Session expired') this.showToast(error.message, 'error');
         } finally {
             btn.disabled = false;
             btn.textContent = 'Create';

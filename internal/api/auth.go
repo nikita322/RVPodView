@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"rvpodview/internal/auth"
 )
@@ -25,6 +26,7 @@ func NewAuthHandler(pamAuth *auth.PAMAuth, jwtManager *auth.JWTManager) *AuthHan
 type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	Remember bool   `json:"remember"`
 }
 
 // LoginResponse represents login response
@@ -63,8 +65,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Token duration: 24 hours default, 30 days if "remember me"
+	tokenDuration := 24 * time.Hour
+	cookieMaxAge := 86400 // 24 hours in seconds
+	if req.Remember {
+		tokenDuration = 30 * 24 * time.Hour // 30 days
+		cookieMaxAge = 30 * 24 * 3600       // 30 days in seconds
+	}
+
 	// Generate JWT token
-	token, err := h.jwtManager.GenerateToken(user)
+	token, err := h.jwtManager.GenerateTokenWithDuration(user, tokenDuration)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, LoginResponse{
 			Success: false,
@@ -73,8 +83,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set cookie (24 hours)
-	auth.SetAuthCookie(w, token, 86400)
+	// Set cookie
+	auth.SetAuthCookie(w, token, cookieMaxAge)
 
 	writeJSON(w, http.StatusOK, LoginResponse{
 		Success: true,

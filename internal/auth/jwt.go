@@ -47,14 +47,19 @@ func generateRandomSecret() string {
 	return hex.EncodeToString(bytes)
 }
 
-// GenerateToken creates new JWT token for user
+// GenerateToken creates new JWT token for user with default duration
 func (m *JWTManager) GenerateToken(user *User) (string, error) {
+	return m.GenerateTokenWithDuration(user, m.tokenDuration)
+}
+
+// GenerateTokenWithDuration creates new JWT token for user with custom duration
+func (m *JWTManager) GenerateTokenWithDuration(user *User, duration time.Duration) (string, error) {
 	claims := &Claims{
 		Username: user.Username,
 		UID:      user.UID,
 		Role:     user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(m.tokenDuration)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Issuer:    "rvpodview",
 		},
