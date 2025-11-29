@@ -171,6 +171,15 @@
                     <p style="margin-bottom: 16px; color: var(--text-light);">Remove unused containers, images, and volumes to free up disk space.</p>
                     <button id="system-prune-btn" class="btn btn-danger">System Prune</button>
                 </div>
+
+                <div class="info-section admin-only" style="margin-top: 20px;">
+                    <h2>Host Controls</h2>
+                    <p style="margin-bottom: 16px; color: var(--text-light);">Reboot or shutdown the host system.</p>
+                    <div class="btn-group">
+                        <button id="system-reboot-btn" class="btn btn-warning">Reboot</button>
+                        <button id="system-shutdown-btn" class="btn btn-danger">Shutdown</button>
+                    </div>
+                </div>
             </section>
 
             <!-- Containers Page -->
@@ -330,6 +339,18 @@
                 <button type="button" class="btn-close" onclick="App.closeTerminal()">&times;</button>
             </div>
             <div id="terminal-container" class="terminal-container"></div>
+        </div>
+    </div>
+
+    <!-- Modal for Confirmation -->
+    <div id="modal-confirm" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="confirm-title">Confirm</h2>
+            <p id="confirm-message" style="margin-bottom: 20px; color: var(--text-light);"></p>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeModal('modal-confirm')">Cancel</button>
+                <button type="button" id="confirm-action-btn" class="btn btn-danger">Confirm</button>
+            </div>
         </div>
     </div>
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os/exec"
 
 	"rvpodview/internal/auth"
 	"rvpodview/internal/podman"
@@ -131,4 +132,38 @@ func (h *SystemHandler) Prune(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "pruned"})
+}
+
+// Reboot handles POST /api/system/reboot
+func (h *SystemHandler) Reboot(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUserFromContext(r.Context())
+	if !user.IsAdmin() {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
+		return
+	}
+
+	// Send response before rebooting
+	writeJSON(w, http.StatusOK, map[string]string{"status": "rebooting"})
+
+	// Reboot in background
+	go func() {
+		exec.Command("systemctl", "reboot").Run()
+	}()
+}
+
+// Shutdown handles POST /api/system/shutdown
+func (h *SystemHandler) Shutdown(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUserFromContext(r.Context())
+	if !user.IsAdmin() {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
+		return
+	}
+
+	// Send response before shutdown
+	writeJSON(w, http.StatusOK, map[string]string{"status": "shutting down"})
+
+	// Shutdown in background
+	go func() {
+		exec.Command("systemctl", "poweroff").Run()
+	}()
 }

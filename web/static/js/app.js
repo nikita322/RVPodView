@@ -40,7 +40,9 @@ const App = {
         // Dashboard
         document.getElementById('refresh-dashboard').addEventListener('click', () => this.loadDashboard());
         document.getElementById('auto-refresh-toggle').addEventListener('change', (e) => this.setAutoRefresh('dashboard', e.target.checked));
-        document.getElementById('system-prune-btn').addEventListener('click', () => this.systemPrune());
+        document.getElementById('system-prune-btn').addEventListener('click', () => this.confirmAction('System Prune', 'This will remove all unused containers, images, and volumes. Are you sure?', () => this.systemPrune()));
+        document.getElementById('system-reboot-btn').addEventListener('click', () => this.confirmAction('Reboot Host', 'Are you sure you want to reboot the host system? All containers will be stopped.', () => this.systemReboot()));
+        document.getElementById('system-shutdown-btn').addEventListener('click', () => this.confirmAction('Shutdown Host', 'Are you sure you want to shutdown the host system? All containers will be stopped and the system will power off.', () => this.systemShutdown()));
 
         // Containers page
         document.getElementById('refresh-containers').addEventListener('click', () => this.loadContainers());
@@ -605,17 +607,17 @@ const App = {
         }
     },
 
-    async removeContainer(id) {
-        if (!confirm('Are you sure you want to remove this container?')) return;
-
-        try {
-            const response = await fetch(`/api/containers/${id}?force=true`, { method: 'DELETE' });
-            if (!response.ok) throw new Error('Failed to remove container');
-            this.showToast('Container removed', 'success');
-            this.loadContainers();
-        } catch (error) {
-            this.showToast('Failed to remove container', 'error');
-        }
+    removeContainer(id) {
+        this.confirmAction('Remove Container', 'Are you sure you want to remove this container?', async () => {
+            try {
+                const response = await fetch(`/api/containers/${id}?force=true`, { method: 'DELETE' });
+                if (!response.ok) throw new Error('Failed to remove container');
+                this.showToast('Container removed', 'success');
+                this.loadContainers();
+            } catch (error) {
+                this.showToast('Failed to remove container', 'error');
+            }
+        });
     },
 
     async viewLogs(id) {
@@ -722,23 +724,21 @@ const App = {
     },
 
     // Remove image
-    async removeImage(id) {
-        if (!confirm('Are you sure you want to remove this image?')) return;
-
-        try {
-            const response = await fetch(`/api/images/${id}?force=true`, { method: 'DELETE' });
-            if (!response.ok) throw new Error('Failed to remove image');
-            this.showToast('Image removed', 'success');
-            this.loadImages();
-        } catch (error) {
-            this.showToast('Failed to remove image', 'error');
-        }
+    removeImage(id) {
+        this.confirmAction('Remove Image', 'Are you sure you want to remove this image?', async () => {
+            try {
+                const response = await fetch(`/api/images/${id}?force=true`, { method: 'DELETE' });
+                if (!response.ok) throw new Error('Failed to remove image');
+                this.showToast('Image removed', 'success');
+                this.loadImages();
+            } catch (error) {
+                this.showToast('Failed to remove image', 'error');
+            }
+        });
     },
 
     // System prune
     async systemPrune() {
-        if (!confirm('This will remove all unused containers, images, and volumes. Are you sure?')) return;
-
         const btn = document.getElementById('system-prune-btn');
         btn.disabled = true;
         btn.textContent = 'Cleaning...';
@@ -753,6 +753,52 @@ const App = {
         } finally {
             btn.disabled = false;
             btn.textContent = 'System Prune';
+        }
+    },
+
+    // Confirm action modal
+    confirmAction(title, message, callback) {
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-message').textContent = message;
+        const actionBtn = document.getElementById('confirm-action-btn');
+        actionBtn.onclick = () => {
+            this.closeModal('modal-confirm');
+            callback();
+        };
+        this.showModal('modal-confirm');
+    },
+
+    // System reboot
+    async systemReboot() {
+        const btn = document.getElementById('system-reboot-btn');
+        btn.disabled = true;
+        btn.textContent = 'Rebooting...';
+
+        try {
+            const response = await fetch('/api/system/reboot', { method: 'POST' });
+            if (!response.ok) throw new Error('Failed to reboot');
+            this.showToast('System is rebooting...', 'success');
+        } catch (error) {
+            this.showToast('Failed to reboot system', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Reboot';
+        }
+    },
+
+    // System shutdown
+    async systemShutdown() {
+        const btn = document.getElementById('system-shutdown-btn');
+        btn.disabled = true;
+        btn.textContent = 'Shutting down...';
+
+        try {
+            const response = await fetch('/api/system/shutdown', { method: 'POST' });
+            if (!response.ok) throw new Error('Failed to shutdown');
+            this.showToast('System is shutting down...', 'success');
+        } catch (error) {
+            this.showToast('Failed to shutdown system', 'error');
+            btn.disabled = false;
+            btn.textContent = 'Shutdown';
         }
     },
 

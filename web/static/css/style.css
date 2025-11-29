@@ -112,6 +112,20 @@ body {
     background: #c82333;
 }
 
+.btn-warning {
+    background: var(--warning);
+    color: #333;
+}
+
+.btn-warning:hover {
+    background: #e0a800;
+}
+
+.btn-group {
+    display: flex;
+    gap: 12px;
+}
+
 .btn-success {
     background: var(--success);
     color: white;

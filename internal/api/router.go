@@ -100,6 +100,8 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/system/info", systemHandler.Info)
 		r.Get("/api/system/df", systemHandler.DiskUsage)
 		r.Post("/api/system/prune", systemHandler.Prune)
+		r.Post("/api/system/reboot", systemHandler.Reboot)
+		r.Post("/api/system/shutdown", systemHandler.Shutdown)
 	})
 
 	// Static files and SPA
