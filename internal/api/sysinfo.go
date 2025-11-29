@@ -7,13 +7,16 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
-// HostStats represents CPU, temperature and uptime info
+// HostStats represents CPU, temperature, uptime and disk info
 type HostStats struct {
 	CPUUsage     float64       `json:"cpuUsage"`
 	Temperatures []Temperature `json:"temperatures"`
-	Uptime       int64         `json:"uptime"` // seconds
+	Uptime       int64         `json:"uptime"`    // seconds
+	DiskTotal    uint64        `json:"diskTotal"` // bytes
+	DiskFree     uint64        `json:"diskFree"`  // bytes
 }
 
 // Temperature represents a temperature sensor reading
@@ -37,7 +40,21 @@ func GetHostStats() *HostStats {
 	// Get uptime
 	stats.Uptime = getUptime()
 
+	// Get disk usage
+	stats.DiskTotal, stats.DiskFree = getDiskUsage("/")
+
 	return stats
+}
+
+// getDiskUsage returns total and free disk space for a path
+func getDiskUsage(path string) (uint64, uint64) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, 0
+	}
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bavail * uint64(stat.Bsize)
+	return total, free
 }
 
 // getUptime reads system uptime from /proc/uptime

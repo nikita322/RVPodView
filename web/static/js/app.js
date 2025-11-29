@@ -404,10 +404,18 @@ const App = {
                 document.getElementById('info-memory').textContent = `${memFree} free / ${memTotal} total`;
             }
 
-            // Update host stats (CPU, uptime, temperatures)
+            // Update host stats (CPU, uptime, disk, temperatures)
             if (data.hostStats) {
                 document.getElementById('info-cpu').textContent = data.hostStats.cpuUsage.toFixed(1) + '%';
                 document.getElementById('info-uptime').textContent = this.formatUptime(data.hostStats.uptime);
+
+                // Update disk
+                if (data.hostStats.diskTotal) {
+                    const used = data.hostStats.diskTotal - data.hostStats.diskFree;
+                    const usedStr = this.formatBytes(used);
+                    const totalStr = this.formatBytes(data.hostStats.diskTotal);
+                    document.getElementById('info-disk').textContent = `${usedStr} / ${totalStr}`;
+                }
 
                 // Update temperatures
                 const tempsGrid = document.getElementById('temps-grid');
