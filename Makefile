@@ -1,11 +1,17 @@
-.PHONY: build run clean deps test cross-build
+.PHONY: build run clean deps test build-riscv64 package-riscv64
 
 # Binary name
 BINARY=rvpodview
 
+# Version (from git tag or "dev")
+VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
+# Build flags
+LDFLAGS=-s -w -X main.Version=$(VERSION)
+
 # Build for current platform
 build:
-	go build -o $(BINARY) ./cmd/rvpodview
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/rvpodview
 
 # Run the application
 run: build
@@ -20,29 +26,25 @@ deps:
 clean:
 	rm -f $(BINARY)
 	rm -f $(BINARY)-*
+	rm -f *.tar.gz
 
-# Build for RISC-V Linux (Orange Pi RV2)
-build-riscv:
-	CGO_ENABLED=1 GOOS=linux GOARCH=riscv64 go build -o $(BINARY)-riscv64 ./cmd/rvpodview
+# Build for RISC-V 64-bit Linux
+build-riscv64:
+	CGO_ENABLED=0 GOOS=linux GOARCH=riscv64 go build -ldflags "$(LDFLAGS)" -o $(BINARY)-linux-riscv64 ./cmd/rvpodview
 
-# Build for ARM64 Linux
-build-arm64:
-	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -o $(BINARY)-arm64 ./cmd/rvpodview
-
-# Build for AMD64 Linux
-build-amd64:
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o $(BINARY)-amd64 ./cmd/rvpodview
-
-# Build all platforms
-build-all: build-amd64 build-arm64 build-riscv
+# Package for RISC-V 64-bit
+package-riscv64: build-riscv64
+	tar -czvf $(BINARY)-$(VERSION)-linux-riscv64.tar.gz \
+		--transform 's,$(BINARY)-linux-riscv64,$(BINARY),' \
+		$(BINARY)-linux-riscv64 web/
 
 # Run tests
 test:
 	go test -v ./...
 
-# Development mode with auto-reload (requires air)
-dev:
-	air
+# Development mode with no auth
+dev: build
+	./$(BINARY) -no-auth
 
 # Format code
 fmt:
@@ -55,14 +57,13 @@ lint:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build       - Build for current platform"
-	@echo "  run         - Build and run"
-	@echo "  deps        - Download dependencies"
-	@echo "  clean       - Remove build artifacts"
-	@echo "  build-riscv - Build for RISC-V Linux"
-	@echo "  build-arm64 - Build for ARM64 Linux"
-	@echo "  build-amd64 - Build for AMD64 Linux"
-	@echo "  build-all   - Build for all platforms"
-	@echo "  test        - Run tests"
-	@echo "  fmt         - Format code"
-	@echo "  lint        - Lint code"
+	@echo "  build         - Build for current platform"
+	@echo "  run           - Build and run"
+	@echo "  dev           - Build and run with -no-auth"
+	@echo "  deps          - Download dependencies"
+	@echo "  clean         - Remove build artifacts"
+	@echo "  build-riscv64 - Build for RISC-V 64-bit Linux"
+	@echo "  package-riscv64 - Build and package for RISC-V"
+	@echo "  test          - Run tests"
+	@echo "  fmt           - Format code"
+	@echo "  lint          - Lint code"

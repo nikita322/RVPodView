@@ -56,23 +56,42 @@ Lightweight web-based Podman management panel for Orange Pi RV2 and other RISC-V
 
 ## Requirements
 
-- Go 1.21+
 - Podman 4.0+
 - Linux with PAM support
 
 ## Installation
 
-### Quick Start
+### Download Pre-built Binary (Recommended)
+
+Download the latest release from [Releases](https://github.com/nir0k/rvpodview/releases):
+
+- **RISC-V 64-bit** (Orange Pi RV2, etc.): `rvpodview-vX.X.X-linux-riscv64.tar.gz`
+
+```bash
+# Download and extract
+wget https://github.com/nir0k/rvpodview/releases/latest/download/rvpodview-vX.X.X-linux-riscv64.tar.gz
+tar -xzvf rvpodview-vX.X.X-linux-riscv64.tar.gz
+
+# Run (requires root for PAM and port 80)
+sudo ./rvpodview
+```
+
+### Build from Source
+
+Requires Go 1.21+
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/rvpodview.git
+git clone https://github.com/nir0k/rvpodview.git
 cd rvpodview
 
-# Build
-go build -o rvpodview ./cmd/rvpodview
+# Build for current platform
+make build
 
-# Run (requires root for PAM and port 80)
+# Or cross-compile for RISC-V
+make build-riscv64
+
+# Run
 sudo ./rvpodview
 ```
 
