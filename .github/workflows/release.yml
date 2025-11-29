@@ -36,9 +36,9 @@ jobs:
             docker.io/riscv64/debian:trixie-slim \
             bash -c '
               apt-get update && \
-              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git && \
+              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
               go mod tidy && \
-              go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o rvpodview ./cmd/rvpodview
+              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o rvpodview ./cmd/rvpodview
             '
           tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz rvpodview web/
 
