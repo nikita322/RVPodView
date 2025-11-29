@@ -18,42 +18,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-
       - name: Get version
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Setup RISC-V cross-compilation
-        run: |
-          # Add riscv64 architecture
-          sudo dpkg --add-architecture riscv64
-
-          # Add Ubuntu ports repository for riscv64
-          echo "deb [arch=riscv64] http://ports.ubuntu.com/ubuntu-ports noble main universe" | sudo tee /etc/apt/sources.list.d/riscv64.list
-
-          # Update package lists
-          sudo apt-get update
-
-          # Install cross-compiler and riscv64 PAM libraries
-          sudo apt-get install -y gcc-riscv64-linux-gnu
-          sudo apt-get install -y libpam0g-dev:riscv64
-
-      - name: Download dependencies
-        run: |
-          go mod tidy
-          go mod download
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
 
       - name: Build for RISC-V 64-bit
         run: |
-          CGO_ENABLED=1 GOOS=linux GOARCH=riscv64 \
-            CC=riscv64-linux-gnu-gcc \
-            PKG_CONFIG_PATH=/usr/lib/riscv64-linux-gnu/pkgconfig \
-            go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o rvpodview ./cmd/rvpodview
-
+          docker run --rm --platform linux/riscv64 \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            -e VERSION="${{ steps.version.outputs.VERSION }}" \
+            docker.io/riscv64/debian:trixie-slim \
+            bash -c '
+              apt-get update && \
+              apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates && \
+              go build -ldflags "-s -w -X main.Version=$VERSION" -o rvpodview ./cmd/rvpodview
+            '
           tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz rvpodview web/
 
       - name: Create Release
