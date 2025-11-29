@@ -22,6 +22,19 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Minify assets
+        run: |
+          go install github.com/tdewolff/minify/v2/cmd/minify@latest
+          minify -o web/static/js/app.min.js web/static/js/app.js
+          minify -o web/static/css/style.min.css web/static/css/style.css
+          mv web/static/js/app.min.js web/static/js/app.js
+          mv web/static/css/style.min.css web/static/css/style.css
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
