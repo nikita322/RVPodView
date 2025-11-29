@@ -27,6 +27,9 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
+      - name: Download dependencies
+        run: go mod download
+
       - name: Build for RISC-V 64-bit
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=riscv64 go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.VERSION }}" -o rvpodview ./cmd/rvpodview
