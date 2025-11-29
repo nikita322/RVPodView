@@ -87,8 +87,11 @@
                 </a>
             </nav>
             <div class="user-info">
-                <span id="current-user"></span>
-                <span id="user-role" class="badge"></span>
+                <div class="user-row">
+                    <span id="user-role" class="badge"></span>
+                    <span id="current-user"></span>
+                    <span class="app-version">{{VERSION}}</span>
+                </div>
                 <button id="logout-btn" class="btn btn-logout">
                     <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M5 3h6a1 1 0 0 1 0 2H5v14h6a1 1 0 0 1 0 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm12.71 6.29a1 1 0 0 0-1.42 1.42L18.59 13H9a1 1 0 0 0 0 2h9.59l-2.3 2.29a1 1 0 1 0 1.42 1.42l4-4a1 1 0 0 0 0-1.42l-4-4z"/>

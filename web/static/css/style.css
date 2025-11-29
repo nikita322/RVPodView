@@ -283,9 +283,18 @@ body {
     margin-top: auto;
 }
 
-.user-info #current-user {
-    display: block;
-    margin-bottom: 8px;
+.user-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.app-version {
+    font-size: 11px;
+    color: var(--text-light);
+    opacity: 0.5;
+    margin-left: auto;
 }
 
 .badge {
@@ -294,7 +303,6 @@ body {
     border-radius: 12px;
     font-size: 11px;
     text-transform: uppercase;
-    margin-bottom: 10px;
 }
 
 .badge.admin {
@@ -728,8 +736,7 @@ body {
         align-items: center;
     }
 
-    .user-info #current-user,
-    .user-info .badge {
+    .user-row {
         display: none;
     }
 

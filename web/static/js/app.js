@@ -173,6 +173,12 @@ const App = {
         roleEl.textContent = this.user.role;
         roleEl.className = 'badge ' + this.user.role;
 
+        // Set version fallback for dev builds
+        const versionEl = document.querySelector('.app-version');
+        if (versionEl && versionEl.textContent === '{{VERSION}}') {
+            versionEl.textContent = 'dev';
+        }
+
         // Set admin class for showing admin-only elements
         if (this.user.role === 'admin') {
             document.body.classList.add('is-admin');

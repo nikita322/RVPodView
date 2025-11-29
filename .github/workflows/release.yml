@@ -35,6 +35,15 @@ jobs:
           mv web/static/js/app.min.js web/static/js/app.js
           mv web/static/css/style.min.css web/static/css/style.css
 
+      - name: Version assets and templates
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Add version query string to CSS/JS
+          sed -i "s|/static/css/style\.css|/static/css/style.css?v=$VERSION|g" web/templates/index.html
+          sed -i "s|/static/js/app\.js|/static/js/app.js?v=$VERSION|g" web/templates/index.html
+          # Add version to HTML template
+          sed -i "s|{{VERSION}}|$VERSION|g" web/templates/index.html
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
