@@ -7,7 +7,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 )
 
 // HostStats represents CPU, temperature, uptime and disk info
@@ -77,42 +79,89 @@ func getUptime() int64 {
 	return int64(uptime)
 }
 
-// getCPUUsage reads CPU usage from /proc/stat
+// CPU stats for delta calculation
+var (
+	cpuMu        sync.Mutex
+	prevTotal    int64
+	prevIdle     int64
+	prevTime     time.Time
+	lastCPUUsage float64
+)
+
+// getCPUUsage calculates real CPU usage from /proc/stat
 // Returns percentage (0-100)
 func getCPUUsage() float64 {
+	total, idle := readCPUStat()
+	if total == 0 {
+		return lastCPUUsage
+	}
+
+	cpuMu.Lock()
+	defer cpuMu.Unlock()
+
+	now := time.Now()
+
+	// Need previous reading to calculate delta
+	if prevTime.IsZero() {
+		prevTotal = total
+		prevIdle = idle
+		prevTime = now
+		return 0
+	}
+
+	// Calculate delta since last reading
+	totalDelta := total - prevTotal
+	idleDelta := idle - prevIdle
+
+	// Store current values for next call
+	prevTotal = total
+	prevIdle = idle
+	prevTime = now
+
+	if totalDelta <= 0 {
+		return lastCPUUsage
+	}
+
+	// CPU usage = (total - idle) / total * 100
+	lastCPUUsage = float64(totalDelta-idleDelta) / float64(totalDelta) * 100
+	if lastCPUUsage < 0 {
+		lastCPUUsage = 0
+	} else if lastCPUUsage > 100 {
+		lastCPUUsage = 100
+	}
+
+	return lastCPUUsage
+}
+
+// readCPUStat reads CPU times from /proc/stat
+func readCPUStat() (total, idle int64) {
 	data, err := os.ReadFile("/proc/stat")
 	if err != nil {
-		return 0
+		return 0, 0
 	}
 
+	// First line: cpu user nice system idle iowait irq softirq steal guest guest_nice
 	lines := strings.Split(string(data), "\n")
 	if len(lines) == 0 {
-		return 0
+		return 0, 0
 	}
 
-	// Parse first line: cpu user nice system idle iowait irq softirq
 	fields := strings.Fields(lines[0])
 	if len(fields) < 5 || fields[0] != "cpu" {
-		return 0
+		return 0, 0
 	}
 
-	var total, idle int64
+	// Sum all CPU times
 	for i := 1; i < len(fields); i++ {
 		val, _ := strconv.ParseInt(fields[i], 10, 64)
 		total += val
-		if i == 4 { // idle is 4th value (index 4, but fields[0] is "cpu")
-			idle = val
+		// idle (index 4) + iowait (index 5) = total idle time
+		if i == 4 || i == 5 {
+			idle += val
 		}
 	}
 
-	if total == 0 {
-		return 0
-	}
-
-	// This is instantaneous - for better accuracy we'd need to compare two readings
-	// For now return (total - idle) / total as rough estimate
-	usage := float64(total-idle) / float64(total) * 100
-	return usage
+	return total, idle
 }
 
 // friendlyTempNames maps system sensor names to human-readable names
@@ -185,76 +234,54 @@ func getTemperatures() []Temperature {
 		}
 	}
 
-	// Also check for NVMe temperatures
-	nvmeTemps := getNVMeTemperatures()
-	temps = append(temps, nvmeTemps...)
+	// Add NVMe temperatures
+	temps = append(temps, getNVMeTemperatures()...)
 
 	return temps
 }
 
-// getNVMeTemperatures reads NVMe drive temperatures
+// getNVMeTemperatures reads temperatures from NVMe devices using nvme-cli
 func getNVMeTemperatures() []Temperature {
 	temps := []Temperature{}
 
-	// Check /sys/class/nvme
-	nvmePath := "/sys/class/nvme"
-	entries, err := os.ReadDir(nvmePath)
+	// Scan /sys/block for nvme devices
+	entries, err := os.ReadDir("/sys/block")
 	if err != nil {
 		return temps
 	}
 
 	for _, entry := range entries {
 		deviceName := entry.Name()
-		var temp *Temperature
+		if !strings.HasPrefix(deviceName, "nvme") {
+			continue
+		}
 
-		// Method 1: Try hwmon under nvme device (works on some systems)
-		hwmonPath := filepath.Join(nvmePath, deviceName, "hwmon")
-		hwmonEntries, err := os.ReadDir(hwmonPath)
-		if err == nil {
-			for _, hw := range hwmonEntries {
-				tempFile := filepath.Join(hwmonPath, hw.Name(), "temp1_input")
-				tempBytes, err := os.ReadFile(tempFile)
-				if err != nil {
-					continue
-				}
+		// Skip partitions (nvme0n1p1, etc)
+		if strings.Contains(deviceName, "p") {
+			continue
+		}
 
-				tempMilliC, err := strconv.ParseInt(strings.TrimSpace(string(tempBytes)), 10, 64)
-				if err != nil {
-					continue
-				}
+		devicePath := "/dev/" + deviceName
+		if _, err := os.Stat(devicePath); err != nil {
+			continue
+		}
 
-				temp = &Temperature{
+		cmd := exec.Command("nvme", "smart-log", devicePath)
+		output, err := cmd.Output()
+		if err != nil {
+			continue
+		}
+
+		// Parse: temperature                             : 53 °C (326 K)
+		re := regexp.MustCompile(`temperature\s*:\s*(\d+)\s*°?C`)
+		matches := re.FindStringSubmatch(string(output))
+		if len(matches) >= 2 {
+			if tempC, err := strconv.ParseFloat(matches[1], 64); err == nil {
+				temps = append(temps, Temperature{
 					Label: "NVMe " + deviceName,
-					Temp:  float64(tempMilliC) / 1000.0,
-				}
-				break
+					Temp:  tempC,
+				})
 			}
-		}
-
-		// Method 2: Use nvme smart-log command (fallback)
-		if temp == nil {
-			devicePath := "/dev/" + deviceName
-			if _, err := os.Stat(devicePath); err == nil {
-				cmd := exec.Command("nvme", "smart-log", devicePath)
-				output, err := cmd.Output()
-				if err == nil {
-					// Parse: temperature                             : 53 °C (326 K)
-					re := regexp.MustCompile(`temperature\s*:\s*(\d+)\s*°?C`)
-					matches := re.FindStringSubmatch(string(output))
-					if len(matches) >= 2 {
-						if tempC, err := strconv.ParseFloat(matches[1], 64); err == nil {
-							temp = &Temperature{
-								Label: "NVMe " + deviceName,
-								Temp:  tempC,
-							}
-						}
-					}
-				}
-			}
-		}
-
-		if temp != nil {
-			temps = append(temps, *temp)
 		}
 	}
 

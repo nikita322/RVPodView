@@ -1,11 +1,29 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"os/exec"
+	"sync"
+	"time"
 
 	"rvpodview/internal/auth"
 	"rvpodview/internal/podman"
+)
+
+// Cache for system info and resource counts
+var (
+	cachedSystemInfo    *podman.SystemInfo
+	systemInfoCacheTime time.Time
+	systemInfoMu        sync.RWMutex
+
+	// Cache for images/volumes/networks (change rarely)
+	cachedImagesCount    int
+	cachedVolumesCount   int
+	cachedNetworksCount  int
+	resourcesCacheTime   time.Time
+	resourcesCacheMu     sync.RWMutex
+	resourcesCacheTTL    = 30 * time.Second
 )
 
 // SystemHandler handles system endpoints
@@ -59,19 +77,25 @@ type ContainerCounts struct {
 func (h *SystemHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Get system info
-	sysInfo, err := h.client.GetSystemInfo(ctx)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	// Get cached or fresh system info (static data, cache for 5 minutes)
+	sysInfo := h.getCachedSystemInfo(ctx)
+	if sysInfo == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get system info"})
 		return
 	}
 
-	// Get containers count
+	// Get cached or fresh resource counts
+	imagesCount, volumesCount, networksCount := h.getCachedResourceCounts(ctx)
+
+	// Only containers need fresh data (state changes frequently)
 	containers, err := h.client.ListContainers(ctx)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+
+	// Get host stats (reads /proc, /sys)
+	hostStats := GetHostStats()
 
 	containerCounts := ContainerCounts{Total: len(containers)}
 	for _, c := range containers {
@@ -81,28 +105,6 @@ func (h *SystemHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 			containerCounts.Stopped++
 		}
 	}
-
-	// Get images count
-	images, err := h.client.ListImages(ctx)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-
-	// Get volumes count
-	volumes, err := h.client.ListVolumes(ctx)
-	if err != nil {
-		volumes = nil // Ignore error, just set to 0
-	}
-
-	// Get networks count
-	networks, err := h.client.ListNetworks(ctx)
-	if err != nil {
-		networks = nil
-	}
-
-	// Get host stats (CPU, temperatures)
-	hostStats := GetHostStats()
 
 	// Build optimized system info with only used fields
 	systemInfo := &DashboardSystemInfo{
@@ -122,12 +124,85 @@ func (h *SystemHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 		System:     systemInfo,
 		HostStats:  hostStats,
 		Containers: containerCounts,
-		Images:     len(images),
-		Volumes:    len(volumes),
-		Networks:   len(networks),
+		Images:     imagesCount,
+		Volumes:    volumesCount,
+		Networks:   networksCount,
 	}
 
 	writeJSON(w, http.StatusOK, dashboard)
+}
+
+// getCachedSystemInfo returns cached system info or fetches fresh
+func (h *SystemHandler) getCachedSystemInfo(ctx context.Context) *podman.SystemInfo {
+	systemInfoMu.RLock()
+	if cachedSystemInfo != nil && time.Since(systemInfoCacheTime) < 5*time.Minute {
+		info := cachedSystemInfo
+		systemInfoMu.RUnlock()
+		return info
+	}
+	systemInfoMu.RUnlock()
+
+	// Fetch fresh
+	info, err := h.client.GetSystemInfo(ctx)
+	if err != nil {
+		return cachedSystemInfo // Return stale cache on error
+	}
+
+	systemInfoMu.Lock()
+	cachedSystemInfo = info
+	systemInfoCacheTime = time.Now()
+	systemInfoMu.Unlock()
+
+	return info
+}
+
+// getCachedResourceCounts returns cached or fresh counts for images, volumes, networks
+func (h *SystemHandler) getCachedResourceCounts(ctx context.Context) (int, int, int) {
+	resourcesCacheMu.RLock()
+	if time.Since(resourcesCacheTime) < resourcesCacheTTL {
+		images, volumes, networks := cachedImagesCount, cachedVolumesCount, cachedNetworksCount
+		resourcesCacheMu.RUnlock()
+		return images, volumes, networks
+	}
+	resourcesCacheMu.RUnlock()
+
+	// Fetch fresh counts in parallel
+	var imagesCount, volumesCount, networksCount int
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		if images, err := h.client.ListImages(ctx); err == nil {
+			imagesCount = len(images)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if volumes, err := h.client.ListVolumes(ctx); err == nil {
+			volumesCount = len(volumes)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if networks, err := h.client.ListNetworks(ctx); err == nil {
+			networksCount = len(networks)
+		}
+	}()
+
+	wg.Wait()
+
+	// Update cache
+	resourcesCacheMu.Lock()
+	cachedImagesCount = imagesCount
+	cachedVolumesCount = volumesCount
+	cachedNetworksCount = networksCount
+	resourcesCacheTime = time.Now()
+	resourcesCacheMu.Unlock()
+
+	return imagesCount, volumesCount, networksCount
 }
 
 // Info handles GET /api/system/info
