@@ -153,6 +153,11 @@ func (h *ContainerHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }
 
+// LogsResponse represents the response for container logs
+type LogsResponse struct {
+	Lines []string `json:"lines"`
+}
+
 // Logs handles GET /api/containers/{id}/logs
 func (h *ContainerHandler) Logs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
@@ -170,7 +175,17 @@ func (h *ContainerHandler) Logs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"logs": logs})
+	// Split logs into lines
+	var lines []string
+	if logs != "" {
+		lines = strings.Split(logs, "\n")
+		// Remove empty trailing line if exists
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
+	}
+
+	writeJSON(w, http.StatusOK, LogsResponse{Lines: lines})
 }
 
 // CreateContainerRequest represents the request body for creating a container

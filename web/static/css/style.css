@@ -821,16 +821,57 @@ body {
     flex: 1;
     background: var(--bg-base);
     color: var(--text);
-    padding: 16px;
+    padding: 0;
     border-radius: 6px;
     border: 1px solid var(--border);
     overflow: auto;
     font-family: "Consolas", "Monaco", monospace;
     font-size: 13px;
-    line-height: 1.4;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    line-height: 1.5;
     max-height: 500px;
+}
+
+.log-line {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+}
+
+.log-line:last-child {
+    border-bottom: none;
+}
+
+.log-line:hover {
+    background: var(--card-bg);
+}
+
+.log-num {
+    flex-shrink: 0;
+    width: 50px;
+    padding: 4px 12px;
+    background: var(--bg);
+    color: var(--text-secondary);
+    text-align: right;
+    border-right: 1px solid var(--border);
+    user-select: none;
+}
+
+.log-text {
+    flex: 1;
+    padding: 4px 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.log-loading,
+.log-empty,
+.log-error {
+    padding: 16px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.log-error {
+    color: var(--danger);
 }
 
 /* Toast notifications */
@@ -1210,8 +1251,16 @@ body {
     /* Logs viewer on mobile */
     .logs-viewer {
         font-size: 11px;
-        padding: 12px;
         max-height: 300px;
+    }
+
+    .log-num {
+        width: 40px;
+        padding: 3px 8px;
+    }
+
+    .log-text {
+        padding: 3px 8px;
     }
 }
 

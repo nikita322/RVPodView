@@ -801,17 +801,38 @@ const App = {
 
     async viewLogs(id) {
         const logsContent = document.getElementById('logs-content');
-        logsContent.textContent = 'Loading...';
+        logsContent.innerHTML = '<div class="log-loading">Loading...</div>';
         this.showModal('modal-logs');
 
         try {
             const response = await this.authFetch(`/api/containers/${id}/logs?tail=200`);
             if (!response.ok) throw new Error('Failed to load logs');
             const data = await response.json();
-            logsContent.textContent = data.logs || 'No logs available';
+
+            if (!data.lines || data.lines.length === 0) {
+                logsContent.innerHTML = '<div class="log-empty">No logs available</div>';
+                return;
+            }
+
+            // Build log lines with line numbers
+            const html = data.lines.map((line, index) => {
+                const lineNum = data.lines.length - index; // Newest first, so reverse numbering
+                const escapedLine = this.escapeHtml(line) || '&nbsp;';
+                return `<div class="log-line"><span class="log-num">${lineNum}</span><span class="log-text">${escapedLine}</span></div>`;
+            }).join('');
+
+            logsContent.innerHTML = html;
         } catch (error) {
-            if (error.message !== 'Session expired') logsContent.textContent = 'Error loading logs';
+            if (error.message !== 'Session expired') {
+                logsContent.innerHTML = '<div class="log-error">Error loading logs</div>';
+            }
         }
+    },
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     },
 
     // Load images list
