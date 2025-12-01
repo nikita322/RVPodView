@@ -54,11 +54,11 @@ sudo ./rvpodview
 
 ### Run as Systemd Service
 
-#### Option A: Pre-built binary
-
 ```bash
-# Copy binary to /usr/local/bin
-sudo cp rvpodview /usr/local/bin/
+# Install to /opt/rvpodview
+sudo mkdir -p /opt/rvpodview
+sudo cp rvpodview /opt/rvpodview/
+sudo cp -r web /opt/rvpodview/
 
 # Create service file
 sudo tee /etc/systemd/system/rvpodview.service << 'EOF'
@@ -68,7 +68,8 @@ After=network.target podman.socket
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/rvpodview -addr :80
+WorkingDirectory=/opt/rvpodview
+ExecStart=/opt/rvpodview/rvpodview -addr :80
 Restart=always
 RestartSec=5
 
@@ -77,34 +78,6 @@ WantedBy=multi-user.target
 EOF
 
 # Enable and start
-sudo systemctl daemon-reload
-sudo systemctl enable rvpodview
-sudo systemctl start rvpodview
-```
-
-#### Option B: Build from source on start
-
-```bash
-sudo tee /etc/systemd/system/rvpodview.service << 'EOF'
-[Unit]
-Description=RVPodView - Podman Web Management
-After=network.target podman.socket
-
-[Service]
-Type=simple
-WorkingDirectory=/root/RVPodView
-Environment=GOPATH=/root/go
-Environment=GOMODCACHE=/root/go/pkg/mod
-Environment=HOME=/root
-ExecStartPre=/usr/local/go/bin/go build -o rvpodview ./cmd/rvpodview
-ExecStart=/root/RVPodView/rvpodview -addr :80
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
 sudo systemctl daemon-reload
 sudo systemctl enable rvpodview
 sudo systemctl start rvpodview
