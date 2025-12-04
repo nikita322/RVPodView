@@ -9,17 +9,19 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"rvpodview/internal/auth"
+	"rvpodview/internal/events"
 	"rvpodview/internal/podman"
 )
 
 // ContainerHandler handles container endpoints
 type ContainerHandler struct {
-	client *podman.Client
+	client     *podman.Client
+	eventStore *events.Store
 }
 
 // NewContainerHandler creates new container handler
-func NewContainerHandler(client *podman.Client) *ContainerHandler {
-	return &ContainerHandler{client: client}
+func NewContainerHandler(client *podman.Client, eventStore *events.Store) *ContainerHandler {
+	return &ContainerHandler{client: client, eventStore: eventStore}
 }
 
 // ContainerWithStats extends Container with resource stats
@@ -91,10 +93,12 @@ func (h *ContainerHandler) Start(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	if err := h.client.StartContainer(r.Context(), id); err != nil {
+		h.eventStore.Add(events.EventContainerStart, user.Username, getClientIP(r), false, shortID(id))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	h.eventStore.Add(events.EventContainerStart, user.Username, getClientIP(r), true, shortID(id))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
 }
 
@@ -109,10 +113,12 @@ func (h *ContainerHandler) Stop(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	if err := h.client.StopContainer(r.Context(), id); err != nil {
+		h.eventStore.Add(events.EventContainerStop, user.Username, getClientIP(r), false, shortID(id))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	h.eventStore.Add(events.EventContainerStop, user.Username, getClientIP(r), true, shortID(id))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
 
@@ -127,10 +133,12 @@ func (h *ContainerHandler) Restart(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	if err := h.client.RestartContainer(r.Context(), id); err != nil {
+		h.eventStore.Add(events.EventContainerRestart, user.Username, getClientIP(r), false, shortID(id))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	h.eventStore.Add(events.EventContainerRestart, user.Username, getClientIP(r), true, shortID(id))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "restarted"})
 }
 
@@ -146,10 +154,12 @@ func (h *ContainerHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	force := r.URL.Query().Get("force") == "true"
 
 	if err := h.client.RemoveContainer(r.Context(), id, force); err != nil {
+		h.eventStore.Add(events.EventContainerRemove, user.Username, getClientIP(r), false, shortID(id))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	h.eventStore.Add(events.EventContainerRemove, user.Username, getClientIP(r), true, shortID(id))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }
 
@@ -245,6 +255,7 @@ func (h *ContainerHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.client.CreateContainer(r.Context(), config)
 	if err != nil {
+		h.eventStore.Add(events.EventContainerCreate, user.Username, getClientIP(r), false, req.Image)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -252,6 +263,7 @@ func (h *ContainerHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Start container if requested
 	if req.Start {
 		if err := h.client.StartContainer(r.Context(), result.ID); err != nil {
+			h.eventStore.Add(events.EventContainerCreate, user.Username, getClientIP(r), true, shortID(result.ID))
 			writeJSON(w, http.StatusOK, map[string]string{
 				"id":      result.ID,
 				"status":  "created",
@@ -266,6 +278,7 @@ func (h *ContainerHandler) Create(w http.ResponseWriter, r *http.Request) {
 		status = "started"
 	}
 
+	h.eventStore.Add(events.EventContainerCreate, user.Username, getClientIP(r), true, shortID(result.ID))
 	writeJSON(w, http.StatusCreated, map[string]string{"id": result.ID, "status": status})
 }
 

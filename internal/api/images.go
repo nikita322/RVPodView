@@ -7,17 +7,19 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"rvpodview/internal/auth"
+	"rvpodview/internal/events"
 	"rvpodview/internal/podman"
 )
 
 // ImageHandler handles image endpoints
 type ImageHandler struct {
-	client *podman.Client
+	client     *podman.Client
+	eventStore *events.Store
 }
 
 // NewImageHandler creates new image handler
-func NewImageHandler(client *podman.Client) *ImageHandler {
-	return &ImageHandler{client: client}
+func NewImageHandler(client *podman.Client, eventStore *events.Store) *ImageHandler {
+	return &ImageHandler{client: client, eventStore: eventStore}
 }
 
 // ImageWithUsage extends Image with usage info
@@ -99,10 +101,12 @@ func (h *ImageHandler) Pull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.client.PullImage(r.Context(), req.Reference); err != nil {
+		h.eventStore.Add(events.EventImagePull, user.Username, getClientIP(r), false, req.Reference)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	h.eventStore.Add(events.EventImagePull, user.Username, getClientIP(r), true, req.Reference)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "pulled"})
 }
 
@@ -118,9 +122,11 @@ func (h *ImageHandler) Remove(w http.ResponseWriter, r *http.Request) {
 	force := r.URL.Query().Get("force") == "true"
 
 	if err := h.client.RemoveImage(r.Context(), id, force); err != nil {
+		h.eventStore.Add(events.EventImageRemove, user.Username, getClientIP(r), false, shortID(id))
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	h.eventStore.Add(events.EventImageRemove, user.Username, getClientIP(r), true, shortID(id))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
 }

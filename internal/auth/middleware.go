@@ -91,7 +91,11 @@ func SetUserContext(ctx context.Context, user *User) context.Context {
 }
 
 // SetAuthCookie sets JWT token in HttpOnly cookie
-func SetAuthCookie(w http.ResponseWriter, token string, maxAge int) {
+// Automatically sets Secure flag when request is over HTTPS
+func SetAuthCookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
+	// Determine if request came over HTTPS (direct TLS or via reverse proxy)
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
 		Value:    token,
@@ -99,6 +103,7 @@ func SetAuthCookie(w http.ResponseWriter, token string, maxAge int) {
 		MaxAge:   maxAge,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
 	})
 }
 

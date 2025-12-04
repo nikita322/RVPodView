@@ -19,27 +19,54 @@ import (
 	"github.com/gorilla/websocket"
 
 	"rvpodview/internal/auth"
+	"rvpodview/internal/events"
 	"rvpodview/internal/podman"
 )
 
 // TerminalHandler handles terminal WebSocket connections
 type TerminalHandler struct {
-	client   *podman.Client
-	upgrader websocket.Upgrader
+	client       *podman.Client
+	wsTokenStore *auth.WSTokenStore
+	eventStore   *events.Store
+	upgrader     websocket.Upgrader
 }
 
 // NewTerminalHandler creates new terminal handler
-func NewTerminalHandler(client *podman.Client) *TerminalHandler {
-	return &TerminalHandler{
-		client: client,
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for now
-			},
-		},
+func NewTerminalHandler(client *podman.Client, wsTokenStore *auth.WSTokenStore, eventStore *events.Store) *TerminalHandler {
+	h := &TerminalHandler{
+		client:       client,
+		wsTokenStore: wsTokenStore,
+		eventStore:   eventStore,
 	}
+
+	h.upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     h.checkOrigin,
+	}
+
+	return h
+}
+
+// checkOrigin validates WebSocket connection using CSRF token
+// This prevents Cross-Site WebSocket Hijacking (CSWSH) attacks
+func (h *TerminalHandler) checkOrigin(r *http.Request) bool {
+	// Get token from query parameter
+	token := r.URL.Query().Get("ws_token")
+	if token == "" {
+		log.Printf("WebSocket rejected: missing ws_token")
+		return false
+	}
+
+	// Validate token (one-time use, auto-deleted after validation)
+	username, valid := h.wsTokenStore.Validate(token)
+	if !valid {
+		log.Printf("WebSocket rejected: invalid or expired ws_token")
+		return false
+	}
+
+	log.Printf("WebSocket connection authorized for user: %s", username)
+	return true
 }
 
 // ExecMessage represents a WebSocket message
@@ -65,6 +92,9 @@ func (h *TerminalHandler) HostTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.Close()
+
+	// Log terminal connection
+	h.eventStore.Add(events.EventTerminalHost, user.Username, getClientIP(r), true, "")
 
 	// Start shell process
 	cmd := exec.Command("/bin/sh")
@@ -215,6 +245,9 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
+
+	// Log terminal connection
+	h.eventStore.Add(events.EventTerminalContainer, user.Username, getClientIP(r), true, shortID(containerID))
 
 	// Start proxying
 	ctx, cancel := context.WithCancel(r.Context())

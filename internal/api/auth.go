@@ -6,19 +6,26 @@ import (
 	"time"
 
 	"rvpodview/internal/auth"
+	"rvpodview/internal/events"
 )
 
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
-	pamAuth    *auth.PAMAuth
-	jwtManager *auth.JWTManager
+	pamAuth      *auth.PAMAuth
+	jwtManager   *auth.JWTManager
+	wsTokenStore *auth.WSTokenStore
+	eventStore   *events.Store
+	rateLimiter  *auth.LoginRateLimiter
 }
 
 // NewAuthHandler creates new auth handler
-func NewAuthHandler(pamAuth *auth.PAMAuth, jwtManager *auth.JWTManager) *AuthHandler {
+func NewAuthHandler(pamAuth *auth.PAMAuth, jwtManager *auth.JWTManager, wsTokenStore *auth.WSTokenStore, eventStore *events.Store) *AuthHandler {
 	return &AuthHandler{
-		pamAuth:    pamAuth,
-		jwtManager: jwtManager,
+		pamAuth:      pamAuth,
+		jwtManager:   jwtManager,
+		wsTokenStore: wsTokenStore,
+		eventStore:   eventStore,
+		rateLimiter:  auth.NewLoginRateLimiter(),
 	}
 }
 
@@ -38,6 +45,17 @@ type LoginResponse struct {
 
 // Login handles POST /api/auth/login
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	clientIP := getClientIP(r)
+
+	// Check rate limit first - reject immediately without wasting resources
+	if allowed, _ := h.rateLimiter.Allow(clientIP); !allowed {
+		writeJSON(w, http.StatusTooManyRequests, LoginResponse{
+			Success: false,
+			Message: "Too many login attempts",
+		})
+		return
+	}
+
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, LoginResponse{
@@ -55,15 +73,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authenticate via PAM
 	user, err := h.pamAuth.Authenticate(req.Username, req.Password)
 	if err != nil {
+		h.eventStore.Add(events.EventLoginFailed, req.Username, clientIP, false, "")
 		writeJSON(w, http.StatusUnauthorized, LoginResponse{
 			Success: false,
 			Message: "Invalid username or password",
 		})
 		return
 	}
+
+	h.rateLimiter.Reset(clientIP)
 
 	// Token duration: 24 hours default, 30 days if "remember me"
 	tokenDuration := 24 * time.Hour
@@ -83,8 +103,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set cookie
-	auth.SetAuthCookie(w, token, cookieMaxAge)
+	// Set cookie (Secure flag auto-set for HTTPS)
+	auth.SetAuthCookie(w, r, token, cookieMaxAge)
+
+	// Log successful login
+	h.eventStore.Add(events.EventLogin, user.Username, clientIP, true, "")
 
 	writeJSON(w, http.StatusOK, LoginResponse{
 		Success: true,
@@ -94,7 +117,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 // Logout handles POST /api/auth/logout
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUserFromContext(r.Context())
+	username := ""
+	if user != nil {
+		username = user.Username
+	}
+
 	auth.ClearAuthCookie(w)
+
+	// Log logout
+	h.eventStore.Add(events.EventLogout, username, getClientIP(r), true, "")
+
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
@@ -109,4 +142,28 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user": user,
 	})
+}
+
+// WSToken handles GET /api/auth/ws-token
+// Returns a one-time CSRF token for WebSocket connections
+func (h *AuthHandler) WSToken(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Not authenticated"})
+		return
+	}
+
+	// Only admins can get WebSocket tokens (terminals require admin)
+	if !user.IsAdmin() {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
+		return
+	}
+
+	token, err := h.wsTokenStore.Generate(user.Username)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to generate token"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }

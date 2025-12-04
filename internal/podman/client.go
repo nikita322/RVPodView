@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -456,7 +457,7 @@ func (c *Client) InspectImage(ctx context.Context, id string) (*ImageInspect, er
 
 // PullImage pulls an image from registry
 func (c *Client) PullImage(ctx context.Context, reference string) error {
-	path := fmt.Sprintf("/v4.0.0/libpod/images/pull?reference=%s", reference)
+	path := fmt.Sprintf("/v4.0.0/libpod/images/pull?reference=%s", url.QueryEscape(reference))
 	resp, err := c.request(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return err

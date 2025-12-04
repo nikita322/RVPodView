@@ -357,6 +357,7 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
+    position: relative;
 }
 
 .sidebar .logo-icon {
@@ -366,6 +367,168 @@ body {
 
 .sidebar .logo h2 {
     font-size: 20px;
+}
+
+/* Events Bell */
+.events-bell {
+    position: relative;
+    margin-left: auto;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: background-color 0.15s ease;
+}
+
+.events-bell:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.events-bell svg {
+    width: 20px;
+    height: 20px;
+    color: var(--text-secondary);
+    transition: color 0.15s ease;
+}
+
+.events-bell:hover svg {
+    color: var(--text);
+}
+
+.events-badge {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    background: var(--danger);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 2px solid var(--sidebar-bg);
+}
+
+.events-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 10px;
+    right: 10px;
+    margin-top: 8px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+    max-height: 400px;
+    display: flex;
+    flex-direction: column;
+}
+
+.events-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    color: var(--text);
+}
+
+.events-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.events-close:hover {
+    color: var(--text);
+}
+
+.events-list {
+    overflow-y: auto;
+    max-height: 340px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.events-list::-webkit-scrollbar {
+    display: none;
+}
+
+.events-empty {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.event-item {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.event-item:last-child {
+    border-bottom: none;
+}
+
+.event-item:hover {
+    background: var(--card-bg-hover);
+}
+
+.event-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.event-type {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+}
+
+.event-type.login { background: var(--success-bg); color: var(--success); }
+.event-type.login_failed { background: var(--danger-bg); color: var(--danger); }
+.event-type.logout { background: var(--warning-bg); color: var(--warning); }
+.event-type.terminal_host,
+.event-type.terminal_container { background: var(--primary-glow); color: var(--primary); }
+.event-type.container_start { background: var(--success-bg); color: var(--success); }
+.event-type.container_stop { background: var(--warning-bg); color: var(--warning); }
+.event-type.container_restart { background: var(--primary-glow); color: var(--primary); }
+.event-type.container_remove,
+.event-type.image_remove { background: var(--danger-bg); color: var(--danger); }
+.event-type.container_create,
+.event-type.image_pull { background: var(--success-bg); color: var(--success); }
+.event-type.system_reboot,
+.event-type.system_shutdown { background: var(--danger-bg); color: var(--danger); }
+.event-type.system_prune { background: var(--warning-bg); color: var(--warning); }
+
+.event-user {
+    color: var(--text);
+    font-weight: 500;
+}
+
+.event-details {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.event-time {
+    color: var(--text-muted);
+    font-size: 11px;
+    margin-left: auto;
+}
+
+.event-ip {
+    color: var(--text-muted);
+    font-size: 11px;
 }
 
 .sidebar nav {
@@ -783,8 +946,8 @@ body {
 }
 
 .modal-large {
-    width: 800px;
-    max-height: 80vh;
+    width: 900px;
+    max-height: 85vh;
     display: flex;
     flex-direction: column;
 }
@@ -828,7 +991,7 @@ body {
     font-family: "Consolas", "Monaco", monospace;
     font-size: 13px;
     line-height: 1.5;
-    max-height: 500px;
+    max-height: 600px;
 }
 
 .log-line {

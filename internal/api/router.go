@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"rvpodview/internal/auth"
+	"rvpodview/internal/events"
 	"rvpodview/internal/podman"
 )
 
@@ -18,6 +19,8 @@ type Server struct {
 	pamAuth      *auth.PAMAuth
 	jwtManager   *auth.JWTManager
 	authMw       *auth.Middleware
+	wsTokenStore *auth.WSTokenStore
+	eventStore   *events.Store
 	noAuth       bool
 }
 
@@ -26,6 +29,8 @@ func NewServer(podmanClient *podman.Client, jwtSecret string, noAuth bool) *Serv
 	pamAuth := auth.NewPAMAuth()
 	jwtManager := auth.NewJWTManager(jwtSecret, 24*60*60*1000000000) // 24 hours
 	authMw := auth.NewMiddleware(jwtManager)
+	wsTokenStore := auth.NewWSTokenStore()
+	eventStore := events.NewStore(100) // Keep last 100 events in memory
 
 	s := &Server{
 		router:       chi.NewRouter(),
@@ -33,6 +38,8 @@ func NewServer(podmanClient *podman.Client, jwtSecret string, noAuth bool) *Serv
 		pamAuth:      pamAuth,
 		jwtManager:   jwtManager,
 		authMw:       authMw,
+		wsTokenStore: wsTokenStore,
+		eventStore:   eventStore,
 		noAuth:       noAuth,
 	}
 
@@ -50,11 +57,12 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.Compress(5))
 
 	// Create handlers
-	authHandler := NewAuthHandler(s.pamAuth, s.jwtManager)
-	containerHandler := NewContainerHandler(s.podmanClient)
-	imageHandler := NewImageHandler(s.podmanClient)
-	systemHandler := NewSystemHandler(s.podmanClient)
-	terminalHandler := NewTerminalHandler(s.podmanClient)
+	authHandler := NewAuthHandler(s.pamAuth, s.jwtManager, s.wsTokenStore, s.eventStore)
+	containerHandler := NewContainerHandler(s.podmanClient, s.eventStore)
+	imageHandler := NewImageHandler(s.podmanClient, s.eventStore)
+	systemHandler := NewSystemHandler(s.podmanClient, s.eventStore)
+	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore)
+	eventsHandler := NewEventsHandler(s.eventStore)
 
 	// Public routes
 	r.Post("/api/auth/login", authHandler.Login)
@@ -72,6 +80,10 @@ func (s *Server) setupRoutes() {
 		// Auth
 		r.Post("/api/auth/logout", authHandler.Logout)
 		r.Get("/api/auth/me", authHandler.Me)
+		r.Get("/api/auth/ws-token", authHandler.WSToken)
+
+		// Events
+		r.Get("/api/events", eventsHandler.List)
 
 		// Containers
 		r.Get("/api/containers", containerHandler.List)

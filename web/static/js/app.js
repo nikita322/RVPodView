@@ -15,6 +15,9 @@ const App = {
     xtermLoading: false,
     logsContainerId: null,
     logsAutoInterval: null,
+    eventsLastId: 0,
+    eventsOpen: false,
+    eventsCheckInterval: null,
 
     // Lazy load xterm library
     async loadXterm() {
@@ -130,6 +133,14 @@ const App = {
             if (!e.target.closest('.dropdown')) {
                 document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
             }
+            // Close events dropdown when clicking outside
+            if (!e.target.closest('.events-bell') && !e.target.closest('.events-dropdown')) {
+                if (this.eventsOpen) {
+                    this.eventsOpen = false;
+                    const dropdown = document.getElementById('events-dropdown');
+                    if (dropdown) dropdown.classList.add('hidden');
+                }
+            }
         });
 
         // Pause/resume auto-refresh when tab visibility changes
@@ -209,6 +220,9 @@ const App = {
         document.getElementById('username').value = '';
         document.getElementById('password').value = '';
         document.getElementById('login-error').textContent = '';
+        // Stop events check
+        this.stopEventsCheck();
+        this.eventsLastId = 0;
     },
 
     // Show main app
@@ -237,6 +251,9 @@ const App = {
 
         // Load initial page
         this.navigateTo('dashboard');
+
+        // Start checking for new events
+        this.startEventsCheck();
     },
 
     // Navigate to page
@@ -294,8 +311,156 @@ const App = {
         this.hostTerminalFitAddon = null;
     },
 
+    // Get WebSocket CSRF token
+    async getWSToken() {
+        try {
+            const response = await this.authFetch('/api/auth/ws-token');
+            if (!response.ok) {
+                throw new Error('Failed to get WebSocket token');
+            }
+            const data = await response.json();
+            return data.token;
+        } catch (error) {
+            console.error('Failed to get WS token:', error);
+            return null;
+        }
+    },
+
+    // Events methods
+    toggleEvents(event) {
+        if (event) event.stopPropagation();
+        this.eventsOpen = !this.eventsOpen;
+        const dropdown = document.getElementById('events-dropdown');
+        if (this.eventsOpen) {
+            dropdown.classList.remove('hidden');
+            this.loadEvents();
+        } else {
+            dropdown.classList.add('hidden');
+        }
+    },
+
+    // Start periodic check for new events
+    startEventsCheck() {
+        // Initial check
+        this.checkNewEvents();
+        // Check every 30 seconds
+        this.eventsCheckInterval = setInterval(() => this.checkNewEvents(), 30000);
+    },
+
+    stopEventsCheck() {
+        if (this.eventsCheckInterval) {
+            clearInterval(this.eventsCheckInterval);
+            this.eventsCheckInterval = null;
+        }
+    },
+
+    async checkNewEvents() {
+        if (!this.user) return;
+
+        try {
+            const url = this.eventsLastId > 0
+                ? `/api/events?since=${this.eventsLastId}`
+                : '/api/events?limit=1';
+
+            const response = await this.authFetch(url);
+            if (!response.ok) return;
+
+            const data = await response.json();
+            const newLastId = data.lastId || 0;
+            const events = data.events || [];
+
+            // First check - just save lastId without showing badge
+            if (this.eventsLastId === 0) {
+                this.eventsLastId = newLastId;
+                return;
+            }
+
+            // Show badge if there are new events and dropdown is closed
+            if (events.length > 0 && !this.eventsOpen) {
+                const badge = document.getElementById('events-badge');
+                if (badge) {
+                    badge.classList.remove('hidden');
+                }
+            }
+
+            // Update lastId for next check
+            if (newLastId > this.eventsLastId) {
+                this.eventsLastId = newLastId;
+            }
+        } catch (error) {
+            // Silently fail
+        }
+    },
+
+    async loadEvents() {
+        try {
+            const response = await this.authFetch('/api/events?limit=50');
+            if (!response.ok) return;
+
+            const data = await response.json();
+            const events = data.events || [];
+            this.eventsLastId = data.lastId || 0;
+            this.renderEvents(events);
+
+            // Hide badge when viewing events
+            const badge = document.getElementById('events-badge');
+            if (badge) {
+                badge.classList.add('hidden');
+            }
+        } catch (error) {
+            console.error('Failed to load events:', error);
+        }
+    },
+
+    renderEvents(events) {
+        const list = document.getElementById('events-list');
+
+        if (!events || events.length === 0) {
+            list.innerHTML = '<div class="events-empty">No events yet</div>';
+            return;
+        }
+
+        const eventLabels = {
+            'login': 'Login',
+            'login_failed': 'Login Failed',
+            'logout': 'Logout',
+            'terminal_host': 'Host Terminal',
+            'terminal_container': 'Container Terminal',
+            'container_start': 'Container Start',
+            'container_stop': 'Container Stop',
+            'container_restart': 'Container Restart',
+            'container_remove': 'Container Remove',
+            'container_create': 'Container Create',
+            'image_pull': 'Image Pull',
+            'image_remove': 'Image Remove',
+            'system_reboot': 'System Reboot',
+            'system_shutdown': 'System Shutdown',
+            'system_prune': 'System Prune'
+        };
+
+        list.innerHTML = events.map(event => {
+            const time = new Date(event.timestamp).toLocaleString();
+            const label = eventLabels[event.type] || event.type;
+            const statusIcon = event.success ? '' : ' (failed)';
+
+            return `
+                <div class="event-item">
+                    <div class="event-row">
+                        <span class="event-type ${event.type}">${label}${statusIcon}</span>
+                        <span class="event-user">${event.username || 'unknown'}</span>
+                        <span class="event-time">${time}</span>
+                    </div>
+                    <div class="event-row">
+                        <span class="event-ip">${event.ip}</span>
+                        ${event.details ? `<span class="event-details">${event.details}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    },
+
     // Initialize host terminal
-    initHostTerminal() {
+    async initHostTerminal() {
         const container = document.getElementById('host-terminal-container');
 
         // Check if xterm is available
@@ -329,11 +494,18 @@ const App = {
             this.hostTerminalFitAddon.fit();
         }
 
-        // Connect WebSocket
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/api/terminal`;
-
         this.hostTerminal.writeln('Connecting to host...\r\n');
+
+        // Get CSRF token for WebSocket
+        const wsToken = await this.getWSToken();
+        if (!wsToken) {
+            this.hostTerminal.writeln('\x1b[31mFailed to authenticate WebSocket connection\x1b[0m');
+            return;
+        }
+
+        // Connect WebSocket with CSRF token
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/terminal?ws_token=${encodeURIComponent(wsToken)}`;
 
         try {
             this.hostTerminalSocket = new WebSocket(wsUrl);
@@ -1179,11 +1351,18 @@ const App = {
             this.terminalFitAddon.fit();
         }
 
-        // Connect WebSocket
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/api/containers/${containerId}/terminal`;
-
         this.terminal.writeln('Connecting to container...');
+
+        // Get CSRF token for WebSocket
+        const wsToken = await this.getWSToken();
+        if (!wsToken) {
+            this.terminal.writeln('\r\n\x1b[31mFailed to authenticate WebSocket connection\x1b[0m');
+            return;
+        }
+
+        // Connect WebSocket with CSRF token
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/api/containers/${containerId}/terminal?ws_token=${encodeURIComponent(wsToken)}`;
 
         try {
             this.terminalSocket = new WebSocket(wsUrl);

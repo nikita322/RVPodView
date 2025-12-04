@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"rvpodview/internal/auth"
+	"rvpodview/internal/events"
 	"rvpodview/internal/podman"
 )
 
@@ -28,12 +29,13 @@ var (
 
 // SystemHandler handles system endpoints
 type SystemHandler struct {
-	client *podman.Client
+	client     *podman.Client
+	eventStore *events.Store
 }
 
 // NewSystemHandler creates new system handler
-func NewSystemHandler(client *podman.Client) *SystemHandler {
-	return &SystemHandler{client: client}
+func NewSystemHandler(client *podman.Client, eventStore *events.Store) *SystemHandler {
+	return &SystemHandler{client: client, eventStore: eventStore}
 }
 
 // DashboardInfo represents dashboard summary
@@ -232,10 +234,12 @@ func (h *SystemHandler) Prune(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.client.SystemPrune(r.Context()); err != nil {
+		h.eventStore.Add(events.EventSystemPrune, user.Username, getClientIP(r), false, err.Error())
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 
+	h.eventStore.Add(events.EventSystemPrune, user.Username, getClientIP(r), true, "")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "pruned"})
 }
 
@@ -246,6 +250,9 @@ func (h *SystemHandler) Reboot(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
 		return
 	}
+
+	// Log reboot event
+	h.eventStore.Add(events.EventSystemReboot, user.Username, getClientIP(r), true, "")
 
 	// Send response before rebooting
 	writeJSON(w, http.StatusOK, map[string]string{"status": "rebooting"})
@@ -263,6 +270,9 @@ func (h *SystemHandler) Shutdown(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
 		return
 	}
+
+	// Log shutdown event
+	h.eventStore.Add(events.EventSystemShutdown, user.Username, getClientIP(r), true, "")
 
 	// Send response before shutdown
 	writeJSON(w, http.StatusOK, map[string]string{"status": "shutting down"})
