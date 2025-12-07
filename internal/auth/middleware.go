@@ -9,7 +9,7 @@ type contextKey string
 
 const (
 	UserContextKey contextKey = "user"
-	CookieName     string     = "rvpodview_token"
+	CookieName     string     = "podmanview_token"
 )
 
 // Middleware handles authentication for protected routes

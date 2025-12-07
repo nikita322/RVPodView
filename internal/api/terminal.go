@@ -18,9 +18,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 
-	"rvpodview/internal/auth"
-	"rvpodview/internal/events"
-	"rvpodview/internal/podman"
+	"podmanview/internal/auth"
+	"podmanview/internal/events"
+	"podmanview/internal/podman"
 )
 
 // TerminalHandler handles terminal WebSocket connections

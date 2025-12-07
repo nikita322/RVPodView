@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"rvpodview/internal/auth"
-	"rvpodview/internal/events"
-	"rvpodview/internal/podman"
+	"podmanview/internal/auth"
+	"podmanview/internal/events"
+	"podmanview/internal/podman"
 )
 
 // Cache for system info and resource counts

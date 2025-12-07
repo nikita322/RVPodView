@@ -1,5 +1,5 @@
-// Service Worker for RVPodView PWA
-const CACHE_NAME = 'rvpodview-v1';
+// Service Worker for PodmanView PWA
+const CACHE_NAME = 'podmanview-v1';
 
 // Static assets to cache
 const STATIC_ASSETS = [

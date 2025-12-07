@@ -1,6 +1,6 @@
 {
-  "name": "RVPodView",
-  "short_name": "RVPodView",
+  "name": "PodmanView",
+  "short_name": "PodmanView",
   "description": "Podman Management Panel",
   "start_url": "/",
   "display": "standalone",

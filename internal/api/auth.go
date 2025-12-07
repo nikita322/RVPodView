@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"rvpodview/internal/auth"
-	"rvpodview/internal/events"
+	"podmanview/internal/auth"
+	"podmanview/internal/events"
 )
 
 // AuthHandler handles authentication endpoints

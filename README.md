@@ -1,6 +1,6 @@
-# RVPodView
+# PodmanView
 
-Lightweight web-based Podman management panel for Orange Pi RV2 and other RISC-V single-board computers.
+Minimalist web interface designed specifically for monitoring and managing Podman containers on RISC-V and ARM systems. Perfect for home labs, development environments, and embedded systems.
 
 ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)
 ![Podman](https://img.shields.io/badge/Podman-4.0+-892CA0?logo=podman&logoColor=white)
@@ -8,7 +8,7 @@ Lightweight web-based Podman management panel for Orange Pi RV2 and other RISC-V
 
 ## Demo
 
-![RVPodView Demo](https://github.com/user-attachments/assets/ca9603ea-1ac6-4410-979a-1f69a440ceff)
+![PodmanView Demo](https://github.com/user-attachments/assets/ca9603ea-1ac6-4410-979a-1f69a440ceff)
 
 ## Quick Start
 
@@ -22,15 +22,18 @@ Lightweight web-based Podman management panel for Orange Pi RV2 and other RISC-V
 
 #### Option 1: Download Pre-built Binary (Recommended)
 
+**For ARM64 (Raspberry Pi 4/5, Orange Pi 5, etc.):**
 ```bash
-# Download latest release for RISC-V 64-bit
-wget https://github.com/nir0k/rvpodview/releases/latest/download/rvpodview-linux-riscv64.tar.gz
+wget https://github.com/nikita322/PodmanView/releases/latest/download/podmanview-linux-arm64.tar.gz
+tar -xzvf podmanview-linux-arm64.tar.gz
+sudo ./podmanview
+```
 
-# Extract
-tar -xzvf rvpodview-linux-riscv64.tar.gz
-
-# Run
-sudo ./rvpodview
+**For RISC-V 64-bit (Orange Pi RV2, VisionFive 2, etc.):**
+```bash
+wget https://github.com/nikita322/PodmanView/releases/latest/download/podmanview-linux-riscv64.tar.gz
+tar -xzvf podmanview-linux-riscv64.tar.gz
+sudo ./podmanview
 ```
 
 #### Option 2: Build from Source
@@ -39,8 +42,8 @@ Requires Go 1.21+
 
 ```bash
 # Clone
-git clone https://github.com/nir0k/rvpodview.git
-cd rvpodview
+git clone https://github.com/nikita322/PodmanView.git
+cd podmanview
 
 # Build on RISC-V device
 make build
@@ -49,27 +52,27 @@ make build
 make build-riscv64
 
 # Run
-sudo ./rvpodview
+sudo ./podmanview
 ```
 
 ### Run as Systemd Service
 
 ```bash
-# Install to /opt/rvpodview
-sudo mkdir -p /opt/rvpodview
-sudo cp rvpodview /opt/rvpodview/
-sudo cp -r web /opt/rvpodview/
+# Install to /opt/podmanview
+sudo mkdir -p /opt/podmanview
+sudo cp podmanview /opt/podmanview/
+sudo cp -r web /opt/podmanview/
 
 # Create service file
-sudo tee /etc/systemd/system/rvpodview.service << 'EOF'
+sudo tee /etc/systemd/system/podmanview.service << 'EOF'
 [Unit]
-Description=RVPodView - Podman Web Management
+Description=PodmanView - Podman Web Management
 After=network.target podman.socket
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/rvpodview
-ExecStart=/opt/rvpodview/rvpodview -addr :80
+WorkingDirectory=/opt/podmanview
+ExecStart=/opt/podmanview/podmanview -addr :80
 Restart=always
 RestartSec=5
 
@@ -79,8 +82,8 @@ EOF
 
 # Enable and start
 sudo systemctl daemon-reload
-sudo systemctl enable rvpodview
-sudo systemctl start rvpodview
+sudo systemctl enable podmanview
+sudo systemctl start podmanview
 ```
 
 ### Command Line Options
@@ -94,7 +97,7 @@ sudo systemctl start rvpodview
 
 ### Environment Variables
 
-- `RVPODVIEW_JWT_SECRET` - JWT secret key
+- `PODMANVIEW_JWT_SECRET` - JWT secret key
 
 ## Usage
 
@@ -197,8 +200,8 @@ sudo systemctl start rvpodview
 ## Project Structure
 
 ```
-rvpodview/
-├── cmd/rvpodview/      # Application entry point
+podmanview/
+├── cmd/podmanview/      # Application entry point
 ├── internal/
 │   ├── api/            # HTTP handlers
 │   ├── auth/           # PAM authentication & JWT

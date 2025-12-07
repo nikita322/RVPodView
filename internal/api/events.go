@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"rvpodview/internal/events"
+	"podmanview/internal/events"
 )
 
 // EventsHandler handles event log endpoints

@@ -1,4 +1,4 @@
-module rvpodview
+module podmanview
 
 go 1.21
 

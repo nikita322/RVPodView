@@ -1,4 +1,4 @@
-// RVPodView - Podman Web Management
+// PodmanView - Podman Web Management
 
 const App = {
     user: null,

@@ -11,8 +11,8 @@ import (
 	"os"
 	"strings"
 
-	"rvpodview/internal/api"
-	"rvpodview/internal/podman"
+	"podmanview/internal/api"
+	"podmanview/internal/podman"
 )
 
 func main() {
@@ -48,14 +48,14 @@ func main() {
 	// Get JWT secret from env or flag
 	secret := *jwtSecret
 	if secret == "" {
-		secret = os.Getenv("RVPODVIEW_JWT_SECRET")
+		secret = os.Getenv("PODMANVIEW_JWT_SECRET")
 	}
 
 	// Create API server
 	server := api.NewServer(client, secret, *noAuth)
 
 	// Start server
-	fmt.Printf("RVPodView starting on %s\n", *addr)
+	fmt.Printf("PodmanView starting on %s\n", *addr)
 	if *noAuth {
 		fmt.Println("WARNING: Authentication is DISABLED!")
 	}

@@ -60,9 +60,9 @@ jobs:
               apt-get update && \
               apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
               go mod tidy && \
-              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o rvpodview ./cmd/rvpodview
+              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
             '
-          tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz rvpodview web/
+          tar -czvf podmanview-linux-arm64.tar.gz podmanview web/
 
       - name: Build for RISC-V 64-bit
         run: |
@@ -75,14 +75,14 @@ jobs:
               apt-get update && \
               apt-get install -y --no-install-recommends golang-go libpam0g-dev ca-certificates git gcc libc6-dev && \
               go mod tidy && \
-              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o rvpodview ./cmd/rvpodview
+              CGO_ENABLED=1 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o podmanview ./cmd/podmanview
             '
-          tar -czvf rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz rvpodview web/
+          tar -czvf podmanview-linux-riscv64.tar.gz podmanview web/
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            rvpodview-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz
-            rvpodview-${{ steps.version.outputs.VERSION }}-linux-riscv64.tar.gz
+            podmanview-linux-arm64.tar.gz
+            podmanview-linux-riscv64.tar.gz
           generate_release_notes: true

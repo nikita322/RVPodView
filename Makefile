@@ -1,7 +1,7 @@
 .PHONY: build run clean deps test build-riscv64 package-riscv64
 
 # Binary name
-BINARY=rvpodview
+BINARY=podmanview
 
 # Version (from git tag or "dev")
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -11,7 +11,7 @@ LDFLAGS=-s -w -X main.Version=$(VERSION)
 
 # Build for current platform
 build:
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/rvpodview
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/podmanview
 
 # Run the application
 run: build
@@ -30,7 +30,7 @@ clean:
 
 # Build for RISC-V 64-bit Linux
 build-riscv64:
-	CGO_ENABLED=0 GOOS=linux GOARCH=riscv64 go build -ldflags "$(LDFLAGS)" -o $(BINARY)-linux-riscv64 ./cmd/rvpodview
+	CGO_ENABLED=0 GOOS=linux GOARCH=riscv64 go build -ldflags "$(LDFLAGS)" -o $(BINARY)-linux-riscv64 ./cmd/podmanview
 
 # Package for RISC-V 64-bit
 package-riscv64: build-riscv64

@@ -61,7 +61,7 @@ func (m *JWTManager) GenerateTokenWithDuration(user *User, duration time.Duratio
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(duration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Issuer:    "rvpodview",
+			Issuer:    "podmanview",
 		},
 	}
 

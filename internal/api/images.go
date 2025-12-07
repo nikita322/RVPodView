@@ -6,9 +6,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"rvpodview/internal/auth"
-	"rvpodview/internal/events"
-	"rvpodview/internal/podman"
+	"podmanview/internal/auth"
+	"podmanview/internal/events"
+	"podmanview/internal/podman"
 )
 
 // ImageHandler handles image endpoints

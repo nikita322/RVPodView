@@ -7,9 +7,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"rvpodview/internal/auth"
-	"rvpodview/internal/events"
-	"rvpodview/internal/podman"
+	"podmanview/internal/auth"
+	"podmanview/internal/events"
+	"podmanview/internal/podman"
 )
 
 // Server represents the API server
