@@ -81,9 +81,9 @@ jobs:
 
       - name: Install minisign
         run: |
-          wget -q https://github.com/jedisct1/minisign/releases/download/0.11/minisign-0.11-linux-x86_64.tar.gz
-          tar -xzf minisign-0.11-linux-x86_64.tar.gz
-          sudo mv minisign-linux/x86_64/minisign /usr/local/bin/
+          curl -sSL --retry 3 -o minisign.tar.gz https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz
+          tar -xzf minisign.tar.gz
+          sudo mv minisign /usr/local/bin/
           minisign -v
 
       - name: Sign releases
