@@ -79,10 +79,28 @@ jobs:
             '
           tar -czvf podmanview-linux-riscv64.tar.gz podmanview web/
 
+      - name: Install minisign
+        run: |
+          wget -q https://github.com/jedisct1/minisign/releases/download/0.11/minisign-0.11-linux-x86_64.tar.gz
+          tar -xzf minisign-0.11-linux-x86_64.tar.gz
+          sudo mv minisign-linux/x86_64/minisign /usr/local/bin/
+          minisign -v
+
+      - name: Sign releases
+        env:
+          MINISIGN_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
+        run: |
+          echo "$MINISIGN_KEY" > /tmp/minisign.key
+          minisign -Sm podmanview-linux-arm64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ steps.version.outputs.VERSION }}"
+          minisign -Sm podmanview-linux-riscv64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ steps.version.outputs.VERSION }}"
+          rm /tmp/minisign.key
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             podmanview-linux-arm64.tar.gz
+            podmanview-linux-arm64.tar.gz.minisig
             podmanview-linux-riscv64.tar.gz
+            podmanview-linux-riscv64.tar.gz.minisig
           generate_release_notes: true

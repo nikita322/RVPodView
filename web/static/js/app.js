@@ -223,6 +223,8 @@ const App = {
         // Stop events check
         this.stopEventsCheck();
         this.eventsLastId = 0;
+        // Stop update check
+        this.stopUpdateCheck();
     },
 
     // Show main app
@@ -254,6 +256,11 @@ const App = {
 
         // Start checking for new events
         this.startEventsCheck();
+
+        // Start checking for updates (only for admin)
+        if (this.user.role === 'admin') {
+            this.startUpdateCheck();
+        }
     },
 
     // Navigate to page
@@ -1484,6 +1491,218 @@ const App = {
                 <span class="temp-value ${tempClass}">${t.temp.toFixed(1)}°C</span>
             </div>
         `;
+    },
+
+    // Update system
+    updateInfo: null,
+    updateCheckInterval: null,
+    updatePollingInterval: null,
+
+    // Check for updates
+    async checkForUpdates() {
+        try {
+            const response = await this.authFetch('/api/system/update/check');
+            if (!response.ok) throw new Error('Failed to check for updates');
+
+            this.updateInfo = await response.json();
+            this.renderUpdateButton();
+            return this.updateInfo;
+        } catch (error) {
+            console.error('Failed to check for updates:', error);
+            return null;
+        }
+    },
+
+    // Render update button based on state
+    renderUpdateButton() {
+        const btn = document.getElementById('system-update-btn');
+        if (!btn) return;
+
+        if (!this.updateInfo) {
+            btn.textContent = 'Check Updates';
+            btn.disabled = false;
+            btn.title = '';
+            btn.classList.remove('has-update');
+            return;
+        }
+
+        if (this.updateInfo.isDev) {
+            btn.textContent = 'Update (dev)';
+            btn.disabled = true;
+            btn.title = 'Dev version does not support auto-updates';
+            btn.classList.remove('has-update');
+            return;
+        }
+
+        if (this.updateInfo.updateAvailable) {
+            btn.textContent = `Update to ${this.updateInfo.latestVersion}`;
+            btn.disabled = false;
+            btn.title = `New version available: ${this.updateInfo.latestVersion}`;
+            btn.classList.add('has-update');
+        } else {
+            btn.textContent = 'Up to date';
+            btn.disabled = true;
+            btn.title = `Current version: ${this.updateInfo.currentVersion}`;
+            btn.classList.remove('has-update');
+        }
+    },
+
+    // Show update modal
+    async showUpdateModal() {
+        if (!this.updateInfo) {
+            await this.checkForUpdates();
+        }
+
+        if (!this.updateInfo) {
+            this.showToast('Failed to check for updates', 'error');
+            return;
+        }
+
+        if (this.updateInfo.isDev) {
+            this.showToast('Dev version does not support auto-updates', 'info');
+            return;
+        }
+
+        if (!this.updateInfo.updateAvailable) {
+            this.showToast('Already running the latest version', 'info');
+            return;
+        }
+
+        // Populate modal
+        document.getElementById('update-current-version').textContent = this.updateInfo.currentVersion;
+        document.getElementById('update-latest-version').textContent = this.updateInfo.latestVersion;
+        document.getElementById('update-download-size').textContent = this.formatBytes(this.updateInfo.downloadSize);
+        document.getElementById('update-arch').textContent = this.updateInfo.currentArch;
+
+        const releaseNotes = document.getElementById('update-release-notes');
+        if (this.updateInfo.releaseNotes) {
+            releaseNotes.textContent = this.updateInfo.releaseNotes;
+            releaseNotes.parentElement.style.display = '';
+        } else {
+            releaseNotes.parentElement.style.display = 'none';
+        }
+
+        // Reset progress
+        document.getElementById('update-progress-container').classList.add('hidden');
+        document.getElementById('update-progress-bar').style.width = '0%';
+        document.getElementById('update-progress-text').textContent = '';
+
+        // Enable start button
+        const startBtn = document.getElementById('update-start-btn');
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Update';
+
+        this.showModal('modal-update');
+    },
+
+    // Start update process
+    async startUpdate() {
+        const startBtn = document.getElementById('update-start-btn');
+        startBtn.disabled = true;
+        startBtn.textContent = 'Updating...';
+
+        // Show progress
+        document.getElementById('update-progress-container').classList.remove('hidden');
+        this.setUpdateProgress(0, 'Starting update...');
+
+        try {
+            const response = await this.authFetch('/api/system/update', { method: 'POST' });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to start update');
+            }
+
+            // Start polling for progress
+            this.startUpdatePolling();
+        } catch (error) {
+            this.showToast(error.message, 'error');
+            startBtn.disabled = false;
+            startBtn.textContent = 'Retry Update';
+            this.setUpdateProgress(0, 'Update failed: ' + error.message);
+        }
+    },
+
+    // Poll for update status
+    startUpdatePolling() {
+        if (this.updatePollingInterval) {
+            clearInterval(this.updatePollingInterval);
+        }
+
+        this.updatePollingInterval = setInterval(async () => {
+            try {
+                const response = await this.authFetch('/api/system/update/status');
+                if (!response.ok) return;
+
+                const data = await response.json();
+
+                if (!data.updating) {
+                    clearInterval(this.updatePollingInterval);
+                    this.updatePollingInterval = null;
+
+                    if (data.progress && data.progress.stage === 'failed') {
+                        this.setUpdateProgress(0, 'Update failed: ' + data.progress.message);
+                        const startBtn = document.getElementById('update-start-btn');
+                        startBtn.disabled = false;
+                        startBtn.textContent = 'Retry Update';
+                    }
+                    return;
+                }
+
+                if (data.progress) {
+                    this.setUpdateProgress(data.progress.percent, data.progress.message || data.progress.stage);
+
+                    // If restarting, show message and stop polling
+                    if (data.progress.stage === 'restarting') {
+                        clearInterval(this.updatePollingInterval);
+                        this.updatePollingInterval = null;
+                        this.setUpdateProgress(100, 'Restarting service... Page will reload.');
+
+                        // Wait a bit then reload
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 5000);
+                    }
+                }
+            } catch (error) {
+                // Server might be restarting
+                if (error.message === 'Session expired' || error.name === 'TypeError') {
+                    clearInterval(this.updatePollingInterval);
+                    this.updatePollingInterval = null;
+                    this.setUpdateProgress(100, 'Service restarting... Page will reload.');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                }
+            }
+        }, 1000);
+    },
+
+    // Set update progress
+    setUpdateProgress(percent, message) {
+        document.getElementById('update-progress-bar').style.width = percent + '%';
+        document.getElementById('update-progress-text').textContent = message;
+    },
+
+    // Start periodic update check (every 30 minutes)
+    startUpdateCheck() {
+        // Initial check after 5 seconds
+        setTimeout(() => this.checkForUpdates(), 5000);
+
+        // Then check every 30 minutes
+        this.updateCheckInterval = setInterval(() => {
+            this.checkForUpdates();
+        }, 30 * 60 * 1000);
+    },
+
+    stopUpdateCheck() {
+        if (this.updateCheckInterval) {
+            clearInterval(this.updateCheckInterval);
+            this.updateCheckInterval = null;
+        }
+        if (this.updatePollingInterval) {
+            clearInterval(this.updatePollingInterval);
+            this.updatePollingInterval = null;
+        }
     }
 };
 

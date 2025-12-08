@@ -227,6 +227,20 @@
                             <span>Shutdown</span>
                         </button>
                     </div>
+                    <div class="maintenance-item">
+                        <div>
+                            <div class="maintenance-title">System Update</div>
+                            <div class="maintenance-desc">Check for and install PodmanView updates.</div>
+                        </div>
+                        <button id="system-update-btn" class="btn btn-primary btn-with-icon" onclick="App.showUpdateModal()">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            <span>Check Updates</span>
+                        </button>
+                    </div>
                 </div>
             </section>
 
@@ -427,6 +441,48 @@
             <div class="modal-actions">
                 <button type="button" class="btn" onclick="closeModal('modal-confirm')">Cancel</button>
                 <button type="button" id="confirm-action-btn" class="btn btn-danger">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for System Update -->
+    <div id="modal-update" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>System Update</h2>
+                <button type="button" class="btn-close" onclick="closeModal('modal-update')">&times;</button>
+            </div>
+            <div class="update-info">
+                <div class="update-row">
+                    <span class="update-label">Current Version:</span>
+                    <span class="update-value" id="update-current-version">-</span>
+                </div>
+                <div class="update-row">
+                    <span class="update-label">Latest Version:</span>
+                    <span class="update-value update-new" id="update-latest-version">-</span>
+                </div>
+                <div class="update-row">
+                    <span class="update-label">Download Size:</span>
+                    <span class="update-value" id="update-download-size">-</span>
+                </div>
+                <div class="update-row">
+                    <span class="update-label">Architecture:</span>
+                    <span class="update-value" id="update-arch">-</span>
+                </div>
+            </div>
+            <div class="update-notes">
+                <h4>Release Notes:</h4>
+                <pre id="update-release-notes"></pre>
+            </div>
+            <div id="update-progress-container" class="update-progress hidden">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="update-progress-bar"></div>
+                </div>
+                <div class="progress-text" id="update-progress-text">Preparing...</div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="closeModal('modal-update')">Cancel</button>
+                <button type="button" id="update-start-btn" class="btn btn-primary" onclick="App.startUpdate()">Start Update</button>
             </div>
         </div>
     </div>

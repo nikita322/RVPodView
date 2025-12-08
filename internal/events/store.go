@@ -33,6 +33,7 @@ const (
 	EventSystemReboot   EventType = "system_reboot"
 	EventSystemShutdown EventType = "system_shutdown"
 	EventSystemPrune    EventType = "system_prune"
+	EventSystemUpdate   EventType = "system_update"
 )
 
 // Event represents a security/audit event

@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -11,6 +13,7 @@ import (
 	"podmanview/internal/config"
 	"podmanview/internal/events"
 	"podmanview/internal/podman"
+	"podmanview/internal/updater"
 )
 
 // Server represents the API server
@@ -23,15 +26,29 @@ type Server struct {
 	wsTokenStore *auth.WSTokenStore
 	eventStore   *events.Store
 	config       *config.Config
+	updater      *updater.Updater
 }
 
 // NewServer creates new API server
-func NewServer(podmanClient *podman.Client, cfg *config.Config) *Server {
+func NewServer(podmanClient *podman.Client, cfg *config.Config, version string) *Server {
 	pamAuth := auth.NewPAMAuth()
 	jwtManager := auth.NewJWTManager(cfg.JWTSecret(), cfg.JWTExpiration())
 	authMw := auth.NewMiddleware(jwtManager)
 	wsTokenStore := auth.NewWSTokenStore()
 	eventStore := events.NewStore(100) // Keep last 100 events in memory
+
+	// Get working directory for updater
+	workDir, err := os.Getwd()
+	if err != nil {
+		log.Printf("Warning: failed to get working directory: %v", err)
+		workDir = "."
+	}
+
+	// Create updater
+	upd, err := updater.New(version, workDir)
+	if err != nil {
+		log.Printf("Warning: failed to create updater: %v", err)
+	}
 
 	s := &Server{
 		router:       chi.NewRouter(),
@@ -42,6 +59,7 @@ func NewServer(podmanClient *podman.Client, cfg *config.Config) *Server {
 		wsTokenStore: wsTokenStore,
 		eventStore:   eventStore,
 		config:       cfg,
+		updater:      upd,
 	}
 
 	s.setupRoutes()
@@ -64,6 +82,7 @@ func (s *Server) setupRoutes() {
 	systemHandler := NewSystemHandler(s.podmanClient, s.eventStore)
 	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore)
 	eventsHandler := NewEventsHandler(s.eventStore)
+	updateHandler := NewUpdateHandler(s.updater, s.eventStore)
 
 	// Public routes
 	r.Post("/api/auth/login", authHandler.Login)
@@ -114,6 +133,12 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/system/prune", systemHandler.Prune)
 		r.Post("/api/system/reboot", systemHandler.Reboot)
 		r.Post("/api/system/shutdown", systemHandler.Shutdown)
+
+		// Updates
+		r.Get("/api/system/version", updateHandler.Version)
+		r.Get("/api/system/update/check", updateHandler.Check)
+		r.Get("/api/system/update/status", updateHandler.Status)
+		r.Post("/api/system/update", updateHandler.Perform)
 	})
 
 	// Static files and SPA

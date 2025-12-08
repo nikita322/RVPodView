@@ -13,6 +13,9 @@ import (
 	"podmanview/internal/podman"
 )
 
+// Version is set at build time via -ldflags "-X main.Version=vX.Y.Z"
+var Version = "dev"
+
 func main() {
 	// Load configuration from .env file
 	cfg, err := config.Load(".env")
@@ -42,7 +45,7 @@ func main() {
 	}
 
 	// Create API server
-	server := api.NewServer(client, cfg)
+	server := api.NewServer(client, cfg, Version)
 
 	// Start server
 	addr := cfg.Addr()

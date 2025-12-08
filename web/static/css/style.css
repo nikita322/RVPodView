@@ -1793,3 +1793,94 @@ body.is-admin .page-actions .admin-only {
 .form-group label input[type="checkbox"] {
     margin-right: 8px;
 }
+
+/* Update Modal */
+.update-info {
+    margin-bottom: 20px;
+}
+
+.update-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.update-row:last-child {
+    border-bottom: none;
+}
+
+.update-label {
+    color: var(--text-secondary);
+}
+
+.update-value {
+    font-weight: 500;
+}
+
+.update-value.update-new {
+    color: var(--success);
+}
+
+.update-notes {
+    margin-bottom: 20px;
+}
+
+.update-notes h4 {
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.update-notes pre {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--text-secondary);
+}
+
+.update-progress {
+    margin-bottom: 20px;
+}
+
+.progress-bar {
+    height: 8px;
+    background: var(--bg-elevated);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--primary);
+    transition: width 0.3s ease;
+    border-radius: 4px;
+}
+
+.progress-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+/* Update button states */
+#system-update-btn.has-update {
+    background: var(--success);
+    border-color: var(--success);
+}
+
+#system-update-btn.has-update:hover {
+    background: #38c96f;
+}
+
+#system-update-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
