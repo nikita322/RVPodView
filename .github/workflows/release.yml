@@ -90,8 +90,8 @@ jobs:
           MINISIGN_KEY: ${{ secrets.MINISIGN_PRIVATE_KEY }}
         run: |
           echo "$MINISIGN_KEY" > /tmp/minisign.key
-          minisign -Sm podmanview-linux-arm64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ steps.version.outputs.VERSION }}"
-          minisign -Sm podmanview-linux-riscv64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ steps.version.outputs.VERSION }}"
+          echo "" | minisign -Sm podmanview-linux-arm64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ steps.version.outputs.VERSION }}"
+          echo "" | minisign -Sm podmanview-linux-riscv64.tar.gz -s /tmp/minisign.key -t "PodmanView ${{ steps.version.outputs.VERSION }}"
           rm /tmp/minisign.key
 
       - name: Create Release
