@@ -27,6 +27,7 @@ type Server struct {
 	eventStore   *events.Store
 	config       *config.Config
 	updater      *updater.Updater
+	historyHandler *HistoryHandler
 }
 
 // NewServer creates new API server
@@ -50,16 +51,21 @@ func NewServer(podmanClient *podman.Client, cfg *config.Config, version string) 
 		log.Printf("Warning: failed to create updater: %v", err)
 	}
 
+	// Create history handler (store history in .history file)
+	historyFile := ".history"
+	historyHandler := NewHistoryHandler(historyFile)
+
 	s := &Server{
-		router:       chi.NewRouter(),
-		podmanClient: podmanClient,
-		pamAuth:      pamAuth,
-		jwtManager:   jwtManager,
-		authMw:       authMw,
-		wsTokenStore: wsTokenStore,
-		eventStore:   eventStore,
-		config:       cfg,
-		updater:      upd,
+		router:         chi.NewRouter(),
+		podmanClient:   podmanClient,
+		pamAuth:        pamAuth,
+		jwtManager:     jwtManager,
+		authMw:         authMw,
+		wsTokenStore:   wsTokenStore,
+		eventStore:     eventStore,
+		config:         cfg,
+		updater:        upd,
+		historyHandler: historyHandler,
 	}
 
 	s.setupRoutes()
@@ -80,7 +86,7 @@ func (s *Server) setupRoutes() {
 	containerHandler := NewContainerHandler(s.podmanClient, s.eventStore)
 	imageHandler := NewImageHandler(s.podmanClient, s.eventStore)
 	systemHandler := NewSystemHandler(s.podmanClient, s.eventStore)
-	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore)
+	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler)
 	eventsHandler := NewEventsHandler(s.eventStore)
 	updateHandler := NewUpdateHandler(s.updater, s.eventStore)
 
@@ -115,9 +121,8 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/containers/{id}/restart", containerHandler.Restart)
 		r.Delete("/api/containers/{id}", containerHandler.Remove)
 
-		// Terminal (WebSocket)
+		// Terminal (WebSocket) - history is sent via WebSocket
 		r.Get("/api/containers/{id}/terminal", terminalHandler.Connect)
-		r.Post("/api/containers/{id}/exec", terminalHandler.SimpleTerminal)
 		r.Get("/api/terminal", terminalHandler.HostTerminal)
 
 		// Images

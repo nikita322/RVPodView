@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/creack/pty"
@@ -25,18 +24,20 @@ import (
 
 // TerminalHandler handles terminal WebSocket connections
 type TerminalHandler struct {
-	client       *podman.Client
-	wsTokenStore *auth.WSTokenStore
-	eventStore   *events.Store
-	upgrader     websocket.Upgrader
+	client         *podman.Client
+	wsTokenStore   *auth.WSTokenStore
+	eventStore     *events.Store
+	historyHandler *HistoryHandler
+	upgrader       websocket.Upgrader
 }
 
 // NewTerminalHandler creates new terminal handler
-func NewTerminalHandler(client *podman.Client, wsTokenStore *auth.WSTokenStore, eventStore *events.Store) *TerminalHandler {
+func NewTerminalHandler(client *podman.Client, wsTokenStore *auth.WSTokenStore, eventStore *events.Store, historyHandler *HistoryHandler) *TerminalHandler {
 	h := &TerminalHandler{
-		client:       client,
-		wsTokenStore: wsTokenStore,
-		eventStore:   eventStore,
+		client:         client,
+		wsTokenStore:   wsTokenStore,
+		eventStore:     eventStore,
+		historyHandler: historyHandler,
 	}
 
 	h.upgrader = websocket.Upgrader{
@@ -71,10 +72,11 @@ func (h *TerminalHandler) checkOrigin(r *http.Request) bool {
 
 // ExecMessage represents a WebSocket message
 type ExecMessage struct {
-	Type string `json:"type"` // "stdin", "resize"
-	Data string `json:"data,omitempty"`
-	Cols int    `json:"cols,omitempty"`
-	Rows int    `json:"rows,omitempty"`
+	Type    string `json:"type"` // "stdin", "resize", "save_command"
+	Data    string `json:"data,omitempty"`
+	Command string `json:"command,omitempty"`
+	Cols    int    `json:"cols,omitempty"`
+	Rows    int    `json:"rows,omitempty"`
 }
 
 // HostTerminal handles WebSocket connection for host terminal
@@ -96,8 +98,20 @@ func (h *TerminalHandler) HostTerminal(w http.ResponseWriter, r *http.Request) {
 	// Log terminal connection
 	h.eventStore.Add(events.EventTerminalHost, user.Username, getClientIP(r), true, "")
 
-	// Start shell process
-	cmd := exec.Command("/bin/sh")
+	// Send command history as first message
+	history := h.historyHandler.loadHistory()
+	if len(history) > 0 {
+		historyMsg := map[string]interface{}{
+			"type":     "history",
+			"commands": history,
+		}
+		if historyData, err := json.Marshal(historyMsg); err == nil {
+			ws.WriteMessage(websocket.TextMessage, historyData)
+		}
+	}
+
+	// Start shell process (use bash for better readline support)
+	cmd := exec.Command("/bin/bash")
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
 	// Get PTY
@@ -167,6 +181,11 @@ func (h *TerminalHandler) HostTerminal(w http.ResponseWriter, r *http.Request) {
 						Cols: uint16(msg.Cols),
 					})
 				}
+			case "save_command":
+				// Save command to history
+				if msg.Command != "" {
+					h.historyHandler.saveCommand(msg.Command)
+				}
 			}
 		}
 	}
@@ -182,8 +201,11 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 
 	containerID := chi.URLParam(r, "id")
 
-	// Create exec instance
-	execResp, err := h.client.CreateExec(r.Context(), containerID, []string{"/bin/sh"})
+	// Create exec instance with TERM environment variable for proper terminal support
+	// Try to use bash if available (better readline support), otherwise fallback to sh
+	env := []string{"TERM=xterm-256color"}
+	cmd := []string{"/bin/sh", "-c", "command -v bash >/dev/null 2>&1 && exec bash || exec sh"}
+	execResp, err := h.client.CreateExecWithEnv(r.Context(), containerID, cmd, env)
 	if err != nil {
 		log.Printf("Failed to create exec: %v", err)
 		http.Error(w, "Failed to create exec: "+err.Error(), http.StatusInternalServerError)
@@ -330,98 +352,3 @@ func (h *TerminalHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// SimpleTerminal provides a simpler terminal implementation using polling
-// This is a fallback if WebSocket doesn't work well
-func (h *TerminalHandler) SimpleTerminal(w http.ResponseWriter, r *http.Request) {
-	user := auth.GetUserFromContext(r.Context())
-	if !user.IsAdmin() {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Admin access required"})
-		return
-	}
-
-	containerID := chi.URLParam(r, "id")
-
-	// For simple terminal, just exec a command and return output
-	if r.Method == http.MethodPost {
-		var req struct {
-			Command string `json:"command"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request"})
-			return
-		}
-
-		// Create and run exec
-		cmd := []string{"/bin/sh", "-c", req.Command}
-		execResp, err := h.client.CreateExec(r.Context(), containerID, cmd)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-
-		// Start exec and get output
-		output, err := h.runExec(execResp.ID)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]string{"output": output})
-		return
-	}
-
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
-}
-
-// runExec starts an exec instance and returns output
-func (h *TerminalHandler) runExec(execID string) (string, error) {
-	socketPath := h.client.GetSocketPath()
-	conn, err := net.Dial("unix", socketPath)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-
-	// Send exec start request
-	execStartReq := `{"Detach":false,"Tty":false}`
-	httpReq := "POST /v4.0.0/libpod/exec/" + execID + "/start HTTP/1.1\r\n" +
-		"Host: localhost\r\n" +
-		"Content-Type: application/json\r\n" +
-		"Content-Length: " + itoa(len(execStartReq)) + "\r\n" +
-		"\r\n" +
-		execStartReq
-
-	_, err = conn.Write([]byte(httpReq))
-	if err != nil {
-		return "", err
-	}
-
-	// Read response
-	reader := bufio.NewReader(conn)
-	resp, err := http.ReadResponse(reader, nil)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	// Clean up output (remove stream headers if present)
-	output := cleanOutput(string(body))
-	return output, nil
-}
-
-// itoa converts int to string
-func itoa(i int) string {
-	return strings.TrimSpace(fmt.Sprintf("%d", i))
-}
-
-// cleanOutput removes stream protocol headers from output
-func cleanOutput(s string) string {
-	// Podman stream format: [stream type (1 byte)][size (3 bytes)][data]
-	// For simplicity, just return as-is for now
-	return s
-}

@@ -19,6 +19,12 @@ const App = {
     eventsOpen: false,
     eventsCheckInterval: null,
 
+    // Command history for terminal
+    commandHistory: [],
+    historyIndex: -1,
+    currentLine: '',
+    savedLine: '',
+
     // Lazy load xterm library
     async loadXterm() {
         if (this.xtermLoaded) return true;
@@ -464,6 +470,191 @@ const App = {
         }).join('');
     },
 
+    // Add command to history for host terminal (saves to server via WebSocket)
+    addToHistoryServer(command, socket) {
+        // Don't add empty commands or duplicates of the last command
+        if (!command.trim() || command === this.commandHistory[this.commandHistory.length - 1]) {
+            return;
+        }
+
+        // Add to local array immediately
+        this.commandHistory.push(command);
+
+        // Send to server via WebSocket (non-blocking)
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            try {
+                socket.send(JSON.stringify({
+                    type: 'save_command',
+                    command: command
+                }));
+            } catch (e) {
+                console.warn('Failed to save command via WebSocket:', e);
+            }
+        }
+    },
+
+    // Add command to history for container terminals (saves to localStorage)
+    addToHistoryLocal(command) {
+        // Don't add empty commands or duplicates of the last command
+        if (!command.trim() || command === this.commandHistory[this.commandHistory.length - 1]) {
+            return;
+        }
+
+        // Add to local array immediately
+        this.commandHistory.push(command);
+
+        // Save to localStorage with container-specific key
+        if (this.currentContainerId) {
+            try {
+                const toSave = this.commandHistory.slice(-100); // Keep last 100 commands
+                const storageKey = `containerHistory_${this.currentContainerId}`;
+                localStorage.setItem(storageKey, JSON.stringify(toSave));
+            } catch (e) {
+                console.warn('Failed to save to localStorage:', e);
+            }
+        }
+    },
+
+    // Load container terminal history from localStorage
+    loadContainerHistory(containerId) {
+        try {
+            const storageKey = `containerHistory_${containerId}`;
+            const saved = localStorage.getItem(storageKey);
+            if (saved) {
+                this.commandHistory = JSON.parse(saved);
+            } else {
+                this.commandHistory = [];
+            }
+        } catch (e) {
+            console.warn('Failed to load container history:', e);
+            this.commandHistory = [];
+        }
+    },
+
+    // Replace current line in terminal with a command from history
+    replaceTerminalLine(socket, command) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        // Clear entire line using Ctrl+U (works in bash, sh, ash, dash, zsh)
+        // This clears from cursor to beginning, which is more reliable than backspaces
+        socket.send(JSON.stringify({ type: 'stdin', data: '\x15' }));
+
+        // Type the command from history
+        this.currentLine = command;
+        socket.send(JSON.stringify({ type: 'stdin', data: command }));
+    },
+
+    // Setup terminal input handler (shared between host and container terminals)
+    setupTerminalInputHandler(terminal, socket, saveHistoryFn) {
+        terminal.onData(data => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            // Check for special keys
+            const charCode = data.charCodeAt(0);
+
+            // Arrow Up - show previous command from history
+            if (data === '\x1b[A') {
+                if (this.commandHistory.length === 0) return;
+
+                // First time pressing up - save current line and start from end
+                if (this.historyIndex === -1) {
+                    this.savedLine = this.currentLine;
+                    this.historyIndex = this.commandHistory.length - 1;
+                } else if (this.historyIndex > 0) {
+                    this.historyIndex--;
+                }
+
+                this.replaceTerminalLine(socket, this.commandHistory[this.historyIndex]);
+                return;
+            }
+
+            // Arrow Down - show next command from history
+            if (data === '\x1b[B') {
+                if (this.historyIndex === -1) return;
+
+                this.historyIndex++;
+
+                // Reached end of history - restore saved line
+                if (this.historyIndex >= this.commandHistory.length) {
+                    this.historyIndex = -1;
+                    this.replaceTerminalLine(socket, this.savedLine);
+                } else {
+                    this.replaceTerminalLine(socket, this.commandHistory[this.historyIndex]);
+                }
+                return;
+            }
+
+            // Arrow Left or Right - allow cursor movement, don't track position
+            if (data === '\x1b[D' || data === '\x1b[C') {
+                // Just pass through to server, shell will handle cursor position
+                socket.send(JSON.stringify({ type: 'stdin', data: data }));
+                return;
+            }
+
+            // Enter - save command to history
+            if (data === '\r' || data === '\n') {
+                if (this.currentLine.trim()) {
+                    saveHistoryFn(this.currentLine.trim());
+                }
+                this.currentLine = '';
+                this.historyIndex = -1;
+                this.savedLine = '';
+                socket.send(JSON.stringify({ type: 'stdin', data: data }));
+                return;
+            }
+
+            // Backspace or Delete
+            if (charCode === 127 || charCode === 8) {
+                if (this.currentLine.length > 0) {
+                    this.currentLine = this.currentLine.slice(0, -1);
+                }
+                socket.send(JSON.stringify({ type: 'stdin', data: data }));
+                return;
+            }
+
+            // Ctrl+A - move to beginning
+            if (data === '\x01') {
+                socket.send(JSON.stringify({ type: 'stdin', data: data }));
+                return;
+            }
+
+            // Ctrl+K - clear to end of line
+            if (data === '\x0b') {
+                this.currentLine = '';
+                socket.send(JSON.stringify({ type: 'stdin', data: data }));
+                return;
+            }
+
+            // Ctrl+U - clear line
+            if (data === '\x15') {
+                this.currentLine = '';
+                socket.send(JSON.stringify({ type: 'stdin', data: data }));
+                return;
+            }
+
+            // Ctrl+C - clear current line buffer
+            if (data === '\x03') {
+                this.currentLine = '';
+                this.historyIndex = -1;
+                this.savedLine = '';
+                socket.send(JSON.stringify({ type: 'stdin', data: data }));
+                return;
+            }
+
+            // Regular character - add to current line
+            if (charCode >= 32 && charCode < 127) {
+                this.currentLine += data;
+            }
+
+            // Send to server
+            socket.send(JSON.stringify({ type: 'stdin', data: data }));
+        });
+    },
+
     // Initialize host terminal
     async initHostTerminal() {
         const container = document.getElementById('host-terminal-container');
@@ -475,6 +666,12 @@ const App = {
         }
 
         container.innerHTML = '';
+
+        // Reset command history state
+        this.commandHistory = [];
+        this.historyIndex = -1;
+        this.currentLine = '';
+        this.savedLine = '';
 
         // Create terminal
         this.hostTerminal = new Terminal({
@@ -531,6 +728,19 @@ const App = {
             };
 
             this.hostTerminalSocket.onmessage = (event) => {
+                // Try to parse as JSON (for history message)
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'history' && Array.isArray(msg.commands)) {
+                        // Load command history from server
+                        this.commandHistory = msg.commands;
+                        return;
+                    }
+                } catch (e) {
+                    // Not JSON, treat as terminal output
+                }
+
+                // Write to terminal
                 if (this.hostTerminal) this.hostTerminal.write(event.data);
             };
 
@@ -547,12 +757,12 @@ const App = {
                 console.error('WebSocket error:', error);
             };
 
-            // Send input to WebSocket
-            this.hostTerminal.onData(data => {
-                if (this.hostTerminalSocket && this.hostTerminalSocket.readyState === WebSocket.OPEN) {
-                    this.hostTerminalSocket.send(JSON.stringify({ type: 'stdin', data: data }));
-                }
-            });
+            // Setup terminal input handler with server history support
+            this.setupTerminalInputHandler(
+                this.hostTerminal,
+                this.hostTerminalSocket,
+                (cmd) => this.addToHistoryServer(cmd, this.hostTerminalSocket)
+            );
 
             // Handle resize
             window.addEventListener('resize', () => {
@@ -1328,6 +1538,15 @@ const App = {
 
         container.innerHTML = '';
 
+        // Save current container ID for history management
+        this.currentContainerId = containerId;
+
+        // Load command history from localStorage for this container
+        this.loadContainerHistory(containerId);
+        this.historyIndex = -1;
+        this.currentLine = '';
+        this.savedLine = '';
+
         // Create terminal
         this.terminal = new Terminal({
             cursorBlink: true,
@@ -1372,6 +1591,7 @@ const App = {
             };
 
             this.terminalSocket.onmessage = (event) => {
+                // Write to terminal
                 if (this.terminal) this.terminal.write(event.data);
             };
 
@@ -1384,12 +1604,12 @@ const App = {
                 console.error('WebSocket error:', error);
             };
 
-            // Send input to WebSocket
-            this.terminal.onData(data => {
-                if (this.terminalSocket && this.terminalSocket.readyState === WebSocket.OPEN) {
-                    this.terminalSocket.send(JSON.stringify({ type: 'stdin', data: data }));
-                }
-            });
+            // Setup terminal input handler with localStorage history support
+            this.setupTerminalInputHandler(
+                this.terminal,
+                this.terminalSocket,
+                (cmd) => this.addToHistoryLocal(cmd)
+            );
 
         } catch (error) {
             this.terminal.writeln('\r\n\x1b[31mFailed to connect: ' + error.message + '\x1b[0m');
@@ -1406,6 +1626,7 @@ const App = {
             this.terminal.dispose();
             this.terminal = null;
         }
+        this.currentContainerId = null;
         this.terminalFitAddon = null;
         this.closeModal('modal-terminal');
     },

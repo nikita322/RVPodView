@@ -750,6 +750,7 @@ type ExecConfig struct {
 	AttachStderr bool     `json:"AttachStderr"`
 	Tty          bool     `json:"Tty"`
 	Cmd          []string `json:"Cmd"`
+	Env          []string `json:"Env,omitempty"`
 }
 
 // ExecCreateResponse represents exec create response
@@ -759,12 +760,18 @@ type ExecCreateResponse struct {
 
 // CreateExec creates an exec instance in a container
 func (c *Client) CreateExec(ctx context.Context, containerID string, cmd []string) (*ExecCreateResponse, error) {
+	return c.CreateExecWithEnv(ctx, containerID, cmd, nil)
+}
+
+// CreateExecWithEnv creates an exec instance in a container with environment variables
+func (c *Client) CreateExecWithEnv(ctx context.Context, containerID string, cmd []string, env []string) (*ExecCreateResponse, error) {
 	config := ExecConfig{
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          true,
 		Cmd:          cmd,
+		Env:          env,
 	}
 
 	data, err := json.Marshal(config)
