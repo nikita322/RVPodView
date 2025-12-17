@@ -33,6 +33,16 @@ const (
 	EventSystemReboot   EventType = "system_reboot"
 	EventSystemShutdown EventType = "system_shutdown"
 	EventSystemUpdate   EventType = "system_update"
+
+	// File manager events
+	EventFileBrowse   EventType = "file_browse"
+	EventFileDownload EventType = "file_download"
+	EventFileUpload   EventType = "file_upload"
+	EventFileDelete   EventType = "file_delete"
+	EventFileMkdir    EventType = "file_mkdir"
+	EventFileRename   EventType = "file_rename"
+	EventFileRead     EventType = "file_read"
+	EventFileWrite    EventType = "file_write"
 )
 
 // Event represents a security/audit event

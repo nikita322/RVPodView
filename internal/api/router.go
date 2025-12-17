@@ -89,6 +89,7 @@ func (s *Server) setupRoutes() {
 	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler)
 	eventsHandler := NewEventsHandler(s.eventStore)
 	updateHandler := NewUpdateHandler(s.updater, s.eventStore)
+	fileManagerHandler := NewFileManagerHandler(s.eventStore, "") // Empty baseDir means use home dir
 
 	// Public routes
 	r.Post("/api/auth/login", authHandler.Login)
@@ -143,6 +144,16 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/system/update/check", updateHandler.Check)
 		r.Get("/api/system/update/status", updateHandler.Status)
 		r.Post("/api/system/update", updateHandler.Perform)
+
+		// File Manager
+		r.Get("/api/files/browse", fileManagerHandler.Browse)
+		r.Get("/api/files/download", fileManagerHandler.Download)
+		r.Post("/api/files/upload", fileManagerHandler.Upload)
+		r.Delete("/api/files", fileManagerHandler.Delete)
+		r.Post("/api/files/mkdir", fileManagerHandler.MkDir)
+		r.Post("/api/files/rename", fileManagerHandler.Rename)
+		r.Get("/api/files/read", fileManagerHandler.ReadFile)
+		r.Post("/api/files/write", fileManagerHandler.WriteFile)
 	})
 
 	// Static files and SPA

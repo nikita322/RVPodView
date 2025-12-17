@@ -25,6 +25,13 @@ const App = {
     currentLine: '',
     savedLine: '',
 
+    // File Manager state
+    fileManagerCurrentPath: '/',
+    fileManagerFiles: [],
+    fileManagerParent: '/',
+    fileEditorPath: null,
+    fileEditorOriginalContent: null,
+
     // Lazy load xterm library
     async loadXterm() {
         if (this.xtermLoaded) return true;
@@ -144,6 +151,39 @@ const App = {
                     this.eventsOpen = false;
                     const dropdown = document.getElementById('events-dropdown');
                     if (dropdown) dropdown.classList.add('hidden');
+                }
+            }
+        });
+
+        // Close modals on backdrop click
+        document.addEventListener('click', (e) => {
+            // Check if click was on modal backdrop (not on modal-content)
+            if (e.target.classList.contains('modal') && !e.target.classList.contains('hidden')) {
+                const modalId = e.target.id;
+
+                // Special handling for terminal modal
+                if (modalId === 'modal-terminal') {
+                    this.closeTerminal();
+                } else {
+                    this.closeModal(modalId);
+                }
+            }
+        });
+
+        // Close modals on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // Find any open modal
+                const openModal = document.querySelector('.modal:not(.hidden)');
+                if (openModal) {
+                    const modalId = openModal.id;
+
+                    // Special handling for terminal modal
+                    if (modalId === 'modal-terminal') {
+                        this.closeTerminal();
+                    } else {
+                        this.closeModal(modalId);
+                    }
                 }
             }
         });
@@ -306,6 +346,9 @@ const App = {
                 break;
             case 'terminal':
                 this.loadXterm().then(() => this.initHostTerminal());
+                break;
+            case 'files':
+                this.initFileManager();
                 break;
         }
     },
@@ -1949,6 +1992,506 @@ const App = {
         if (this.updatePollingInterval) {
             clearInterval(this.updatePollingInterval);
             this.updatePollingInterval = null;
+        }
+    },
+
+    // ========== File Manager ==========
+
+    // Initialize file manager
+    async initFileManager() {
+        // Setup event listeners
+        document.getElementById('fm-upload-btn').onclick = () => {
+            document.getElementById('fm-file-input').click();
+        };
+
+        document.getElementById('fm-file-input').onchange = (e) => {
+            if (e.target.files.length > 0) {
+                this.uploadFiles(e.target.files);
+                e.target.value = ''; // Reset input
+            }
+        };
+
+        document.getElementById('fm-new-folder-btn').onclick = () => {
+            this.showNewFolderDialog();
+        };
+
+        // Setup drag & drop
+        this.setupFileManagerDragDrop();
+
+        // Load root directory
+        await this.loadFiles('/');
+    },
+
+    // Load files for a given path
+    async loadFiles(path) {
+        try {
+            const response = await this.authFetch(`/api/files/browse?path=${encodeURIComponent(path)}`);
+            if (!response.ok) {
+                throw new Error('Failed to load files');
+            }
+
+            const data = await response.json();
+            this.fileManagerCurrentPath = data.path;
+            this.fileManagerParent = data.parent;
+            this.fileManagerFiles = data.items || [];
+
+            this.renderBreadcrumb(data.path);
+            this.renderFiles(data.items || []);
+        } catch (error) {
+            console.error('Failed to load files:', error);
+            this.showToast('Failed to load files', 'error');
+        }
+    },
+
+    // Render breadcrumb navigation
+    renderBreadcrumb(path) {
+        const breadcrumbPath = document.querySelector('#fm-breadcrumb .breadcrumb-path');
+        breadcrumbPath.innerHTML = `
+            <svg class="breadcrumb-icon" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+            </svg>
+        `;
+
+        const parts = path.split('/').filter(p => p);
+
+        // Home
+        const homeSpan = document.createElement('span');
+        homeSpan.className = 'breadcrumb-item';
+        homeSpan.textContent = 'Home';
+        homeSpan.dataset.path = '/';
+        homeSpan.onclick = () => this.loadFiles('/');
+        breadcrumbPath.appendChild(homeSpan);
+
+        // Path parts
+        let currentPath = '';
+        parts.forEach((part, index) => {
+            currentPath += '/' + part;
+            const separator = document.createElement('span');
+            separator.className = 'breadcrumb-separator';
+            separator.textContent = '/';
+            breadcrumbPath.appendChild(separator);
+
+            const span = document.createElement('span');
+            span.className = 'breadcrumb-item';
+            span.textContent = part;
+            span.dataset.path = currentPath;
+            const pathToLoad = currentPath; // Capture for closure
+            span.onclick = () => this.loadFiles(pathToLoad);
+            breadcrumbPath.appendChild(span);
+        });
+    },
+
+    // Render file list
+    renderFiles(files) {
+        const tbody = document.getElementById('fm-file-list');
+
+        if (!files || files.length === 0) {
+            tbody.innerHTML = `
+                <tr class="fm-empty">
+                    <td colspan="4">No files or directories</td>
+                </tr>
+            `;
+            return;
+        }
+
+        // Sort: directories first, then files, alphabetically
+        const sorted = [...files].sort((a, b) => {
+            if (a.is_dir && !b.is_dir) return -1;
+            if (!a.is_dir && b.is_dir) return 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        tbody.innerHTML = sorted.map(file => {
+            const icon = this.getFileIcon(file);
+            const size = file.is_dir ? '-' : this.formatFileSize(file.size);
+            const date = new Date(file.mod_time).toLocaleString();
+
+            return `
+                <tr class="fm-row ${file.is_dir ? 'fm-dir' : 'fm-file'}" data-path="${file.path}" data-name="${file.name}" data-is-dir="${file.is_dir}">
+                    <td class="fm-col-name">
+                        <div class="fm-name-cell">
+                            ${icon}
+                            <span class="fm-name">${this.escapeHtml(file.name)}</span>
+                        </div>
+                    </td>
+                    <td class="fm-col-size">${size}</td>
+                    <td class="fm-col-modified">${date}</td>
+                    <td class="fm-col-actions">
+                        ${this.getFileActions(file)}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        // Add click handlers for navigation and file opening
+        tbody.querySelectorAll('.fm-row').forEach(row => {
+            const isDir = row.dataset.isDir === 'true';
+            const nameCell = row.querySelector('.fm-name-cell');
+            nameCell.style.cursor = 'pointer';
+
+            if (isDir) {
+                nameCell.onclick = () => this.loadFiles(row.dataset.path);
+            } else {
+                nameCell.onclick = () => this.openFileEditor(row.dataset.path, row.dataset.name);
+            }
+        });
+    },
+
+    // Get icon for file type
+    getFileIcon(file) {
+        if (file.is_dir) {
+            return `<svg class="fm-icon fm-icon-folder" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+            </svg>`;
+        }
+
+        const ext = file.name.split('.').pop().toLowerCase();
+
+        // Image files
+        if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) {
+            return `<svg class="fm-icon fm-icon-image" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21"/>
+            </svg>`;
+        }
+
+        // Code files
+        if (['js', 'ts', 'go', 'py', 'java', 'c', 'cpp', 'rs', 'html', 'css'].includes(ext)) {
+            return `<svg class="fm-icon fm-icon-code" viewBox="0 0 24 24" fill="currentColor">
+                <polyline points="16 18 22 12 16 6"/>
+                <polyline points="8 6 2 12 8 18"/>
+            </svg>`;
+        }
+
+        // Archive files
+        if (['zip', 'tar', 'gz', 'rar', '7z'].includes(ext)) {
+            return `<svg class="fm-icon fm-icon-archive" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <path d="M14 2v6h6M12 11v2M12 15v2"/>
+            </svg>`;
+        }
+
+        // Default file icon
+        return `<svg class="fm-icon fm-icon-file" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+            <polyline points="13 2 13 9 20 9"/>
+        </svg>`;
+    },
+
+    // Format file size
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    },
+
+    // Get file actions dropdown
+    getFileActions(file) {
+        const path = this.escapeHtml(file.path);
+        const name = this.escapeHtml(file.name);
+        const isDir = file.is_dir;
+
+        let menuItems = '';
+
+        if (!isDir) {
+            menuItems += `<button class="dropdown-item" onclick="App.downloadFile('${path}', '${name}')">Download</button>`;
+        }
+
+        menuItems += `<button class="dropdown-item" onclick="App.showRenameDialog('${path}', '${name}')">Rename</button>`;
+        menuItems += `<div class="dropdown-divider"></div>`;
+        menuItems += `<button class="dropdown-item btn-danger" onclick="App.confirmDeleteFile('${path}', '${name}', ${isDir})">Delete</button>`;
+
+        return `
+            <div class="dropdown">
+                <button class="btn btn-small btn-icon-only" onclick="App.toggleDropdown(this)">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                        <circle cx="12" cy="5" r="2"/>
+                        <circle cx="12" cy="12" r="2"/>
+                        <circle cx="12" cy="19" r="2"/>
+                    </svg>
+                </button>
+                <div class="dropdown-menu">
+                    ${menuItems}
+                </div>
+            </div>`;
+    },
+
+    // Upload files
+    async uploadFiles(files) {
+        const formData = new FormData();
+        formData.append('path', this.fileManagerCurrentPath);
+
+        for (let i = 0; i < files.length; i++) {
+            formData.append('files', files[i]);
+        }
+
+        try {
+            this.showToast(`Uploading ${files.length} file(s)...`, 'info');
+
+            const response = await this.authFetch('/api/files/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error('Upload failed');
+            }
+
+            const result = await response.json();
+            this.showToast(`Uploaded ${result.count} file(s)`, 'success');
+
+            // Reload current directory
+            await this.loadFiles(this.fileManagerCurrentPath);
+        } catch (error) {
+            console.error('Upload error:', error);
+            this.showToast('Upload failed', 'error');
+        }
+    },
+
+    // Download file
+    downloadFile(path, name) {
+        window.location.href = `/api/files/download?path=${encodeURIComponent(path)}`;
+    },
+
+    // Confirm delete
+    confirmDeleteFile(path, name, isDir) {
+        const type = isDir ? 'directory' : 'file';
+        if (confirm(`Are you sure you want to delete ${type} "${name}"?${isDir ? ' This will delete all contents.' : ''}`)) {
+            this.deleteFile(path, name, isDir);
+        }
+    },
+
+    // Delete file or directory
+    async deleteFile(path, name, isDir) {
+        try {
+            const response = await this.authFetch(`/api/files?path=${encodeURIComponent(path)}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                throw new Error('Delete failed');
+            }
+
+            const type = isDir ? 'Directory' : 'File';
+            this.showToast(`${type} deleted`, 'success');
+
+            // Reload current directory
+            await this.loadFiles(this.fileManagerCurrentPath);
+        } catch (error) {
+            console.error('Delete error:', error);
+            this.showToast('Delete failed', 'error');
+        }
+    },
+
+    // Show new folder dialog
+    showNewFolderDialog() {
+        const name = prompt('Enter folder name:');
+        if (name && name.trim()) {
+            this.createFolder(name.trim());
+        }
+    },
+
+    // Create new folder
+    async createFolder(name) {
+        try {
+            const response = await this.authFetch('/api/files/mkdir', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: this.fileManagerCurrentPath,
+                    name: name
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(error || 'Failed to create folder');
+            }
+
+            this.showToast('Folder created', 'success');
+
+            // Reload current directory
+            await this.loadFiles(this.fileManagerCurrentPath);
+        } catch (error) {
+            console.error('Create folder error:', error);
+            this.showToast(error.message || 'Failed to create folder', 'error');
+        }
+    },
+
+    // Show rename dialog
+    showRenameDialog(path, oldName) {
+        const newName = prompt('Enter new name:', oldName);
+        if (newName && newName.trim() && newName !== oldName) {
+            this.renameFile(path, newName.trim());
+        }
+    },
+
+    // Rename file or directory
+    async renameFile(oldPath, newName) {
+        try {
+            const response = await this.authFetch('/api/files/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    old_path: oldPath,
+                    new_name: newName
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(error || 'Failed to rename');
+            }
+
+            this.showToast('Renamed successfully', 'success');
+
+            // Reload current directory
+            await this.loadFiles(this.fileManagerCurrentPath);
+        } catch (error) {
+            console.error('Rename error:', error);
+            this.showToast(error.message || 'Rename failed', 'error');
+        }
+    },
+
+    // Setup drag & drop for file upload
+    setupFileManagerDragDrop() {
+        const dropZone = document.getElementById('fm-drop-zone');
+        const overlay = document.getElementById('fm-drop-overlay');
+
+        let dragCounter = 0;
+
+        dropZone.addEventListener('dragenter', (e) => {
+            e.preventDefault();
+            dragCounter++;
+            overlay.classList.remove('hidden');
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dragCounter--;
+            if (dragCounter === 0) {
+                overlay.classList.add('hidden');
+            }
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dragCounter = 0;
+            overlay.classList.add('hidden');
+
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                this.uploadFiles(files);
+            }
+        });
+    },
+
+    // HTML escape helper
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    },
+
+    // ========== File Editor ==========
+
+    // Open file editor
+    async openFileEditor(path, name) {
+        this.fileEditorPath = path;
+
+        try {
+            this.showToast('Loading file...', 'info');
+
+            const response = await this.authFetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(error || 'Failed to load file');
+            }
+
+            const data = await response.json();
+
+            // Store original content for comparison
+            this.fileEditorOriginalContent = data.content;
+
+            // Update modal UI
+            document.getElementById('file-editor-title').textContent = 'Edit File';
+            document.getElementById('file-editor-name').textContent = data.name;
+            document.getElementById('file-editor-size').textContent = `(${this.formatFileSize(data.size)})`;
+            document.getElementById('file-editor-content').value = data.content;
+
+            // Show modal
+            this.showModal('modal-file-editor');
+
+            // Focus textarea
+            setTimeout(() => {
+                document.getElementById('file-editor-content').focus();
+            }, 100);
+
+        } catch (error) {
+            console.error('Failed to load file:', error);
+            this.showToast(error.message || 'Failed to load file', 'error');
+        }
+    },
+
+    // Save file content
+    async saveFileContent() {
+        const content = document.getElementById('file-editor-content').value;
+
+        // Check if content changed
+        if (content === this.fileEditorOriginalContent) {
+            this.showToast('No changes to save', 'info');
+            return;
+        }
+
+        const saveBtn = document.getElementById('file-editor-save-btn');
+        const originalText = saveBtn.textContent;
+
+        try {
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
+            const response = await this.authFetch('/api/files/write', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: this.fileEditorPath,
+                    content: content
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(error || 'Failed to save file');
+            }
+
+            const result = await response.json();
+
+            // Update original content
+            this.fileEditorOriginalContent = content;
+
+            // Update size display
+            document.getElementById('file-editor-size').textContent = `(${this.formatFileSize(result.size)})`;
+
+            this.showToast('File saved successfully', 'success');
+
+            // Close modal after a short delay
+            setTimeout(() => {
+                this.closeModal('modal-file-editor');
+            }, 500);
+
+        } catch (error) {
+            console.error('Failed to save file:', error);
+            this.showToast(error.message || 'Failed to save file', 'error');
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = originalText;
         }
     }
 };
