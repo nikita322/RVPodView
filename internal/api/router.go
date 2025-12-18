@@ -157,9 +157,11 @@ func (s *Server) setupRoutes() {
 		// File Manager
 		r.Get("/api/files/browse", fileManagerHandler.Browse)
 		r.Get("/api/files/download", fileManagerHandler.Download)
+		r.Get("/api/files/stream", fileManagerHandler.StreamFile) // New: streaming endpoint for large files
 		r.Post("/api/files/upload", fileManagerHandler.Upload)
 		r.Delete("/api/files", fileManagerHandler.Delete)
 		r.Post("/api/files/mkdir", fileManagerHandler.MkDir)
+		r.Post("/api/files/create", fileManagerHandler.CreateFile)
 		r.Post("/api/files/rename", fileManagerHandler.Rename)
 		r.Get("/api/files/read", fileManagerHandler.ReadFile)
 		r.Post("/api/files/write", fileManagerHandler.WriteFile)

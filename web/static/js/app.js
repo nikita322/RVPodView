@@ -31,39 +31,166 @@ const App = {
     fileManagerParent: '/',
     fileEditorPath: null,
     fileEditorOriginalContent: null,
+    fileManagerOffset: 0,
+    fileManagerLimit: 500,
+    fileManagerTotalCount: 0,
+    fileManagerHasMore: false,
 
-    // Lazy load xterm library
+    // File Manager lazy loading state
+    fileManagerCoreLoaded: false,
+    fileManagerCoreLoading: null, // Promise or null
+    fileViewersLoaded: {}, // Track loaded viewers: { TextViewer: true, ImageViewer: false, ... }
+    fileViewersLoading: {}, // Track loading viewers: { TextViewer: Promise, ... }
+
+    // File cache (LRU cache for recently opened files)
+    fileCache: new Map(), // path -> { content, mimeType, encoding, size, timestamp }
+    fileCacheMaxSize: 10 * 1024 * 1024, // 10MB max total cache size
+    fileCacheCurrentSize: 0,
+
+    // Lazy load File Manager core modules (bundled) - Promise-based (optimized!)
+    async loadFileManagerCore() {
+        if (this.fileManagerCoreLoaded) return true;
+
+        // If already loading, return the existing Promise
+        if (this.fileManagerCoreLoading) {
+            return await this.fileManagerCoreLoading;
+        }
+
+        // Create and store Promise for concurrent requests
+        this.fileManagerCoreLoading = (async () => {
+            try {
+                console.log('[ModuleLoader] Loading File Manager core bundle...');
+                const startTime = performance.now();
+
+                // Load bundled core (IconHelper + FileTypeDetector + BaseFileViewer + FileViewerFactory)
+                // Replaces 4 HTTP requests with 1
+                await this.loadScript('/static/js/file-manager-core.js');
+
+                const loadTime = Math.round(performance.now() - startTime);
+                console.log(`[ModuleLoader] File Manager core bundle loaded in ${loadTime}ms`);
+
+                this.fileManagerCoreLoaded = true;
+                return true;
+            } catch (err) {
+                console.error('[ModuleLoader] Failed to load File Manager core:', err);
+                this.showToast('Failed to load File Manager', 'error');
+                return false;
+            } finally {
+                this.fileManagerCoreLoading = null;
+            }
+        })();
+
+        return await this.fileManagerCoreLoading;
+    },
+
+    // Lazy load specific file viewer
+    async loadFileViewer(viewerName) {
+        // Check if already loaded
+        if (this.fileViewersLoaded[viewerName]) {
+            return true;
+        }
+
+        // Check if currently loading
+        if (this.fileViewersLoading[viewerName]) {
+            return await this.fileViewersLoading[viewerName];
+        }
+
+        // Map viewer names to script paths
+        const viewerScripts = {
+            'TextViewer': '/static/js/viewers/TextViewer.js',
+            'ImageViewer': '/static/js/viewers/ImageViewer.js',
+            'VideoViewer': '/static/js/viewers/VideoViewer.js',
+            'AudioViewer': '/static/js/viewers/AudioViewer.js',
+            'PDFViewer': '/static/js/viewers/PDFViewer.js'
+        };
+
+        const scriptPath = viewerScripts[viewerName];
+        if (!scriptPath) {
+            console.warn(`[ModuleLoader] Unknown viewer: ${viewerName}`);
+            return false;
+        }
+
+        // Start loading
+        const loadPromise = (async () => {
+            try {
+                console.log(`[ModuleLoader] Loading ${viewerName}...`);
+                const startTime = performance.now();
+
+                await this.loadScript(scriptPath);
+
+                const loadTime = Math.round(performance.now() - startTime);
+                console.log(`[ModuleLoader] ${viewerName} loaded in ${loadTime}ms`);
+
+                this.fileViewersLoaded[viewerName] = true;
+                delete this.fileViewersLoading[viewerName];
+                return true;
+            } catch (err) {
+                console.error(`[ModuleLoader] Failed to load ${viewerName}:`, err);
+                delete this.fileViewersLoading[viewerName];
+                return false;
+            }
+        })();
+
+        this.fileViewersLoading[viewerName] = loadPromise;
+        return await loadPromise;
+    },
+
+    // Detect and load required viewer for file type
+    async loadViewerForFileType(fileType) {
+        // Map file categories to viewer names
+        const viewerMap = {
+            'text': 'TextViewer',
+            'code': 'TextViewer',
+            'markdown': 'TextViewer',
+            'image': 'ImageViewer',
+            'video': 'VideoViewer',
+            'audio': 'AudioViewer',
+            'pdf': 'PDFViewer'
+        };
+
+        const viewerName = viewerMap[fileType.category];
+        if (viewerName) {
+            return await this.loadFileViewer(viewerName);
+        }
+
+        // No specific viewer needed (will use DownloadViewer which is in core bundle)
+        return true;
+    },
+
+    // Lazy load xterm library - Promise-based (optimized!)
     async loadXterm() {
         if (this.xtermLoaded) return true;
+
+        // If already loading, return the existing Promise
         if (this.xtermLoading) {
-            // Wait for loading to complete
-            while (this.xtermLoading) {
-                await new Promise(r => setTimeout(r, 50));
+            return await this.xtermLoading;
+        }
+
+        // Create and store Promise for concurrent requests
+        this.xtermLoading = (async () => {
+            try {
+                // Load CSS
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = '/static/css/xterm.min.css';
+                document.head.appendChild(link);
+
+                // Load xterm.js
+                await this.loadScript('/static/js/xterm.min.js');
+                // Load fit addon
+                await this.loadScript('/static/js/xterm-addon-fit.min.js');
+
+                this.xtermLoaded = true;
+                return true;
+            } catch (err) {
+                console.error('Failed to load xterm:', err);
+                return false;
+            } finally {
+                this.xtermLoading = null;
             }
-            return this.xtermLoaded;
-        }
+        })();
 
-        this.xtermLoading = true;
-        try {
-            // Load CSS
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = '/static/css/xterm.min.css';
-            document.head.appendChild(link);
-
-            // Load xterm.js
-            await this.loadScript('/static/js/xterm.min.js');
-            // Load fit addon
-            await this.loadScript('/static/js/xterm-addon-fit.min.js');
-
-            this.xtermLoaded = true;
-            return true;
-        } catch (err) {
-            console.error('Failed to load xterm:', err);
-            return false;
-        } finally {
-            this.xtermLoading = false;
-        }
+        return await this.xtermLoading;
     },
 
     // Helper to load script dynamically
@@ -75,6 +202,58 @@ const App = {
             script.onerror = reject;
             document.body.appendChild(script);
         });
+    },
+
+    // ========== File Cache Methods (LRU Cache) ==========
+
+    // Get file from cache
+    getCachedFile(path) {
+        const cached = this.fileCache.get(path);
+        if (cached) {
+            // Update timestamp for LRU
+            cached.timestamp = Date.now();
+            this.fileCache.delete(path);
+            this.fileCache.set(path, cached);
+            console.log(`[FileCache] HIT: ${path} (${this.formatFileSize(cached.size)})`);
+            return cached;
+        }
+        console.log(`[FileCache] MISS: ${path}`);
+        return null;
+    },
+
+    // Add file to cache with LRU eviction
+    setCachedFile(path, fileData) {
+        const size = fileData.size || 0;
+
+        // Don't cache files larger than max cache size
+        if (size > this.fileCacheMaxSize) {
+            console.log(`[FileCache] File too large to cache: ${path} (${this.formatFileSize(size)})`);
+            return;
+        }
+
+        // Evict old entries if cache would exceed max size
+        while (this.fileCacheCurrentSize + size > this.fileCacheMaxSize && this.fileCache.size > 0) {
+            // Remove oldest entry (first item in Map)
+            const firstKey = this.fileCache.keys().next().value;
+            const firstValue = this.fileCache.get(firstKey);
+            this.fileCacheCurrentSize -= (firstValue.size || 0);
+            this.fileCache.delete(firstKey);
+            console.log(`[FileCache] EVICT: ${firstKey} (${this.formatFileSize(firstValue.size || 0)})`);
+        }
+
+        // Add to cache
+        fileData.timestamp = Date.now();
+        this.fileCache.set(path, fileData);
+        this.fileCacheCurrentSize += size;
+
+        console.log(`[FileCache] SET: ${path} (${this.formatFileSize(size)}) - Total: ${this.formatFileSize(this.fileCacheCurrentSize)}/${this.formatFileSize(this.fileCacheMaxSize)}`);
+    },
+
+    // Clear file cache
+    clearFileCache() {
+        this.fileCache.clear();
+        this.fileCacheCurrentSize = 0;
+        console.log('[FileCache] Cleared');
     },
 
     // Authenticated fetch - handles 401 by redirecting to login
@@ -1999,6 +2178,9 @@ const App = {
 
     // Initialize file manager
     async initFileManager() {
+        // NOTE: Core modules are NOT loaded here - they're only needed when opening files
+        // This saves ~22KB and 1 HTTP request when just browsing
+
         // Setup event listeners
         document.getElementById('fm-upload-btn').onclick = () => {
             document.getElementById('fm-file-input').click();
@@ -2015,6 +2197,10 @@ const App = {
             this.showNewFolderDialog();
         };
 
+        document.getElementById('fm-new-file-btn').onclick = () => {
+            this.showNewFileDialog();
+        };
+
         // Setup drag & drop
         this.setupFileManagerDragDrop();
 
@@ -2022,10 +2208,12 @@ const App = {
         await this.loadFiles('/');
     },
 
-    // Load files for a given path
-    async loadFiles(path) {
+    // Load files for a given path (with pagination support)
+    async loadFiles(path, offset = 0) {
         try {
-            const response = await this.authFetch(`/api/files/browse?path=${encodeURIComponent(path)}`);
+            const limit = this.fileManagerLimit;
+            const url = `/api/files/browse?path=${encodeURIComponent(path)}&offset=${offset}&limit=${limit}`;
+            const response = await this.authFetch(url);
             if (!response.ok) {
                 throw new Error('Failed to load files');
             }
@@ -2034,13 +2222,59 @@ const App = {
             this.fileManagerCurrentPath = data.path;
             this.fileManagerParent = data.parent;
             this.fileManagerFiles = data.items || [];
+            this.fileManagerOffset = data.offset || 0;
+            this.fileManagerTotalCount = data.total_count || 0;
+            this.fileManagerHasMore = data.has_more || false;
 
             this.renderBreadcrumb(data.path);
             this.renderFiles(data.items || []);
+            this.renderPagination(data);
         } catch (error) {
             console.error('Failed to load files:', error);
             this.showToast('Failed to load files', 'error');
         }
+    },
+
+    // Render pagination controls
+    renderPagination(data) {
+        const container = document.getElementById('fm-pagination');
+        if (!container) return;
+
+        const { offset, limit, total_count, has_more } = data;
+        const currentPage = Math.floor(offset / limit) + 1;
+        const totalPages = Math.ceil(total_count / limit);
+
+        // Hide pagination if only one page
+        if (totalPages <= 1) {
+            container.innerHTML = '';
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'flex';
+
+        // Build pagination HTML
+        const showingStart = offset + 1;
+        const showingEnd = Math.min(offset + limit, total_count);
+
+        container.innerHTML = `
+            <div class="pagination-info">
+                Showing ${showingStart}-${showingEnd} of ${total_count} items
+            </div>
+            <div class="pagination-controls">
+                <button class="btn btn-sm pagination-btn" ${offset === 0 ? 'disabled' : ''}
+                    onclick="App.loadFiles('${this.fileManagerCurrentPath}', ${Math.max(0, offset - limit)})">
+                    ‹ Previous
+                </button>
+                <span class="pagination-pages">
+                    Page ${currentPage} of ${totalPages}
+                </span>
+                <button class="btn btn-sm pagination-btn" ${!has_more ? 'disabled' : ''}
+                    onclick="App.loadFiles('${this.fileManagerCurrentPath}', ${offset + limit})">
+                    Next ›
+                </button>
+            </div>
+        `;
     },
 
     // Render breadcrumb navigation
@@ -2321,6 +2555,41 @@ const App = {
         }
     },
 
+    // Show new file dialog
+    showNewFileDialog() {
+        const name = prompt('Enter file name (e.g., document.txt):');
+        if (name && name.trim()) {
+            this.createFile(name.trim());
+        }
+    },
+
+    // Create new file
+    async createFile(name) {
+        try {
+            const response = await this.authFetch('/api/files/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: this.fileManagerCurrentPath,
+                    name: name
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(error || 'Failed to create file');
+            }
+
+            this.showToast('File created', 'success');
+
+            // Reload current directory
+            await this.loadFiles(this.fileManagerCurrentPath);
+        } catch (error) {
+            console.error('Create file error:', error);
+            this.showToast(error.message || 'Failed to create file', 'error');
+        }
+    },
+
     // Show rename dialog
     showRenameDialog(path, oldName) {
         const newName = prompt('Enter new name:', oldName);
@@ -2402,37 +2671,97 @@ const App = {
 
     // ========== File Editor ==========
 
-    // Open file editor
-    async openFileEditor(path, name) {
-        this.fileEditorPath = path;
+    currentFileViewer: null,
+    currentFileViewerPath: null,
+    boundFileViewerSave: null,
+    boundToolbarUpdate: null,
 
+    // Open file with appropriate viewer (with cache support!)
+    async openFileViewer(path, name) {
         try {
             this.showToast('Loading file...', 'info');
 
-            const response = await this.authFetch(`/api/files/read?path=${encodeURIComponent(path)}`);
-            if (!response.ok) {
-                const error = await response.text();
-                throw new Error(error || 'Failed to load file');
+            // Check cache first
+            let fileData = this.getCachedFile(path);
+
+            if (!fileData) {
+                // Cache miss - fetch from server
+                const response = await this.authFetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error || 'Failed to load file');
+                }
+
+                fileData = await response.json();
+                fileData.path = path;
+
+                // Handle streaming for large files
+                if (fileData.streamingRequired && fileData.encoding === 'stream') {
+                    // For large binary files, use streaming endpoint
+                    fileData.streamUrl = `/api/files/stream?path=${encodeURIComponent(path)}`;
+                    console.log('[FileViewer] Large file detected, using streaming mode');
+                }
+
+                // Cache file data (only if not streaming)
+                if (!fileData.streamingRequired) {
+                    this.setCachedFile(path, fileData);
+                }
+            } else {
+                console.log('[FileViewer] Using cached file data');
             }
 
-            const data = await response.json();
+            fileData.path = path;
 
-            // Store original content for comparison
-            this.fileEditorOriginalContent = data.content;
+            // Load core bundle FIRST (contains FileTypeDetector)
+            const coreLoaded = await this.loadFileManagerCore();
+            if (!coreLoaded) {
+                throw new Error('Failed to load File Manager core');
+            }
 
-            // Update modal UI
-            document.getElementById('file-editor-title').textContent = 'Edit File';
-            document.getElementById('file-editor-name').textContent = data.name;
-            document.getElementById('file-editor-size').textContent = `(${this.formatFileSize(data.size)})`;
-            document.getElementById('file-editor-content').value = data.content;
+            // NOW we can detect file type and load appropriate viewer
+            const fileType = FileTypeDetector.detect(fileData.name, fileData.mimeType);
+            const viewerLoaded = await this.loadViewerForFileType(fileType);
+
+            if (!viewerLoaded) {
+                throw new Error('Failed to load file viewer');
+            }
+
+            // Destroy previous viewer if exists
+            if (this.currentFileViewer) {
+                this.currentFileViewer.destroy();
+                this.currentFileViewer = null;
+            }
+
+            // Create appropriate viewer
+            this.currentFileViewer = FileViewerFactory.createViewer(fileData);
+            this.currentFileViewerPath = path;
+
+            // Update modal UI (use fileType from viewer for consistency)
+            const viewerFileType = this.currentFileViewer.fileType;
+            document.getElementById('file-viewer-title').textContent =
+                this.currentFileViewer.canEdit() ? 'Edit File' : 'View File';
+            document.getElementById('file-viewer-name').textContent = fileData.name;
+            document.getElementById('file-viewer-type').textContent = FileTypeDetector.getTypeName(viewerFileType.category);
+            document.getElementById('file-viewer-size').textContent = this.formatFileSize(fileData.size);
+
+            // Render viewer content
+            const contentContainer = document.getElementById('file-viewer-content');
+            await this.currentFileViewer.render(contentContainer);
+
+            // Setup toolbar actions
+            this.setupFileViewerActions();
+
+            // Listen for save events from viewer
+            this.boundFileViewerSave = this.handleFileViewerSave.bind(this);
+            this.boundToolbarUpdate = this.setupFileViewerActions.bind(this);
+
+            window.addEventListener('file-viewer-save', this.boundFileViewerSave);
+            window.addEventListener('file-viewer-toolbar-update', this.boundToolbarUpdate);
 
             // Show modal
-            this.showModal('modal-file-editor');
+            this.showModal('modal-file-viewer');
 
-            // Focus textarea
-            setTimeout(() => {
-                document.getElementById('file-editor-content').focus();
-            }, 100);
+            this.showToast('File loaded', 'success');
 
         } catch (error) {
             console.error('Failed to load file:', error);
@@ -2440,30 +2769,95 @@ const App = {
         }
     },
 
-    // Save file content
-    async saveFileContent() {
-        const content = document.getElementById('file-editor-content').value;
+    // Setup viewer toolbar actions
+    setupFileViewerActions() {
+        const actionsContainer = document.getElementById('file-viewer-actions');
+        actionsContainer.innerHTML = '';
 
-        // Check if content changed
-        if (content === this.fileEditorOriginalContent) {
-            this.showToast('No changes to save', 'info');
-            return;
+        if (!this.currentFileViewer) return;
+
+        const actions = this.currentFileViewer.getToolbarActions();
+
+        actions.forEach(action => {
+            if (action.isInfo) {
+                const span = document.createElement('span');
+                span.className = 'file-viewer-action-info';
+                span.textContent = action.label;
+                span.style.color = 'var(--text-secondary)';
+                span.style.fontSize = '0.85em';
+                actionsContainer.appendChild(span);
+            } else if (action.action) {
+                const btn = document.createElement('button');
+                btn.className = action.primary ? 'btn btn-primary' : 'btn';
+
+                // Add icon if present
+                if (action.icon) {
+                    // Check if icon is HTML (SVG) or text (emoji)
+                    if (action.icon.startsWith('<')) {
+                        // SVG icon - parse as HTML
+                        const iconSpan = document.createElement('span');
+                        iconSpan.innerHTML = action.icon;
+                        iconSpan.style.display = 'inline-flex';
+                        iconSpan.style.alignItems = 'center';
+                        btn.appendChild(iconSpan);
+                    } else {
+                        // Text icon (emoji) - use as text
+                        btn.appendChild(document.createTextNode(action.icon + ' '));
+                    }
+                }
+
+                // Add label text
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = action.label;
+                btn.appendChild(labelSpan);
+
+                btn.disabled = action.disabled;
+                btn.onclick = action.action;
+                actionsContainer.appendChild(btn);
+            }
+        });
+    },
+
+    // Handle save event from viewer
+    async handleFileViewerSave(event) {
+        const { path, content } = event.detail;
+        await this.saveFileContent(path, content);
+    },
+
+    // Close file viewer
+    closeFileViewer() {
+        if (this.currentFileViewer) {
+            if (this.currentFileViewer.canEdit() && this.currentFileViewer.hasChanges) {
+                if (!confirm('You have unsaved changes. Are you sure you want to close?')) {
+                    return;
+                }
+            }
+
+            this.currentFileViewer.destroy();
+            this.currentFileViewer = null;
         }
 
-        const saveBtn = document.getElementById('file-editor-save-btn');
-        const originalText = saveBtn.textContent;
+        // Remove event listeners
+        if (this.boundFileViewerSave) {
+            window.removeEventListener('file-viewer-save', this.boundFileViewerSave);
+            this.boundFileViewerSave = null;
+        }
+        if (this.boundToolbarUpdate) {
+            window.removeEventListener('file-viewer-toolbar-update', this.boundToolbarUpdate);
+            this.boundToolbarUpdate = null;
+        }
 
+        this.currentFileViewerPath = null;
+        this.closeModal('modal-file-viewer');
+    },
+
+    // Save file content
+    async saveFileContent(path, content) {
         try {
-            saveBtn.disabled = true;
-            saveBtn.textContent = 'Saving...';
-
             const response = await this.authFetch('/api/files/write', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    path: this.fileEditorPath,
-                    content: content
-                })
+                body: JSON.stringify({ path, content })
             });
 
             if (!response.ok) {
@@ -2473,26 +2867,25 @@ const App = {
 
             const result = await response.json();
 
-            // Update original content
-            this.fileEditorOriginalContent = content;
+            if (this.currentFileViewer && this.currentFileViewer.canEdit()) {
+                this.currentFileViewer.setContent(content);
+            }
 
-            // Update size display
-            document.getElementById('file-editor-size').textContent = `(${this.formatFileSize(result.size)})`;
-
+            document.getElementById('file-viewer-size').textContent = this.formatFileSize(result.size);
             this.showToast('File saved successfully', 'success');
+            this.setupFileViewerActions();
 
-            // Close modal after a short delay
-            setTimeout(() => {
-                this.closeModal('modal-file-editor');
-            }, 500);
-
+            return result;
         } catch (error) {
             console.error('Failed to save file:', error);
             this.showToast(error.message || 'Failed to save file', 'error');
-        } finally {
-            saveBtn.disabled = false;
-            saveBtn.textContent = originalText;
+            throw error;
         }
+    },
+
+    // Backward compatibility - redirect old method to new one
+    async openFileEditor(path, name) {
+        return this.openFileViewer(path, name);
     }
 };
 

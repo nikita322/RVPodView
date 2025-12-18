@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,18 +10,97 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"podmanview/internal/auth"
 	"podmanview/internal/events"
 )
 
+// Global constants for MIME type detection (performance optimization)
+var mimeTypesByExtension = map[string]string{
+	// Images
+	".svg":  "image/svg+xml",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".bmp":  "image/bmp",
+	".ico":  "image/x-icon",
+	".avif": "image/avif",
+
+	// Video
+	".mp4":  "video/mp4",
+	".webm": "video/webm",
+	".ogg":  "video/ogg",
+	".avi":  "video/x-msvideo",
+	".mov":  "video/quicktime",
+	".mkv":  "video/x-matroska",
+
+	// Audio
+	".mp3":  "audio/mpeg",
+	".wav":  "audio/wav",
+	".flac": "audio/flac",
+	".aac":  "audio/aac",
+	".oga":  "audio/ogg",
+
+	// Documents
+	".pdf": "application/pdf",
+	".zip": "application/zip",
+	".tar": "application/x-tar",
+	".gz":  "application/gzip",
+	".rar": "application/x-rar-compressed",
+	".7z":  "application/x-7z-compressed",
+
+	// Text/Code
+	".json": "application/json",
+	".xml":  "application/xml",
+	".html": "text/html",
+	".css":  "text/css",
+	".js":   "text/javascript",
+	".txt":  "text/plain",
+}
+
+var binaryMimePrefixes = []string{
+	"image/",
+	"video/",
+	"audio/",
+	"application/pdf",
+	"application/zip",
+	"application/x-tar",
+	"application/gzip",
+	"application/x-rar",
+	"application/x-7z-compressed",
+	"application/octet-stream",
+	"font/",
+}
+
+var binaryExtensions = []string{
+	".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".svg",
+	".mp4", ".webm", ".ogg", ".avi", ".mov", ".mkv",
+	".mp3", ".wav", ".flac", ".aac",
+	".pdf",
+	".zip", ".tar", ".gz", ".rar", ".7z",
+	".ttf", ".otf", ".woff", ".woff2",
+	".exe", ".dll", ".so", ".dylib",
+}
+
 // FileManagerHandler handles file operations
 type FileManagerHandler struct {
-	eventStore *events.Store
-	baseDir    string // Base directory for file operations (e.g., /home)
-	maxUploadSize int64 // Maximum upload size in bytes (default 100MB)
+	eventStore    *events.Store
+	baseDir       string // Base directory for file operations (e.g., /home)
+	maxUploadSize int64  // Maximum upload size in bytes (default 100MB)
+	pathCache     *pathValidationCache
+}
+
+// pathValidationCache caches validated paths to avoid repeated validation
+type pathValidationCache struct {
+	sync.RWMutex
+	cache map[string]string // requestPath -> absPath
+	maxSize int
 }
 
 // NewFileManagerHandler creates new file manager handler
@@ -45,7 +125,40 @@ func NewFileManagerHandler(eventStore *events.Store, baseDir string) *FileManage
 		eventStore:    eventStore,
 		baseDir:       baseDir,
 		maxUploadSize: 100 * 1024 * 1024, // 100MB default
+		pathCache: &pathValidationCache{
+			cache:   make(map[string]string),
+			maxSize: 1000, // Cache up to 1000 paths
+		},
 	}
+}
+
+// newPathValidationCache creates a new path validation cache
+func (c *pathValidationCache) get(key string) (string, bool) {
+	c.RLock()
+	defer c.RUnlock()
+	val, ok := c.cache[key]
+	return val, ok
+}
+
+// set stores a validated path in cache
+func (c *pathValidationCache) set(key, value string) {
+	c.Lock()
+	defer c.Unlock()
+
+	// Simple LRU: if cache is full, clear half of it
+	if len(c.cache) >= c.maxSize {
+		// Clear half the cache (simple eviction strategy)
+		count := 0
+		for k := range c.cache {
+			delete(c.cache, k)
+			count++
+			if count >= c.maxSize/2 {
+				break
+			}
+		}
+	}
+
+	c.cache[key] = value
 }
 
 // FileInfo represents file or directory information
@@ -60,17 +173,27 @@ type FileInfo struct {
 
 // BrowseResponse represents directory browsing response
 type BrowseResponse struct {
-	Path   string     `json:"path"`   // Current path relative to baseDir
-	Parent string     `json:"parent"` // Parent directory path
-	Items  []FileInfo `json:"items"`  // Files and directories
+	Path       string     `json:"path"`        // Current path relative to baseDir
+	Parent     string     `json:"parent"`      // Parent directory path
+	Items      []FileInfo `json:"items"`       // Files and directories
+	TotalCount int        `json:"total_count"` // Total number of items in directory
+	Offset     int        `json:"offset"`      // Current offset
+	Limit      int        `json:"limit"`       // Items per page
+	HasMore    bool       `json:"has_more"`    // Whether there are more items
 }
 
 // validatePath checks if path is safe and within baseDir
 // Returns cleaned absolute path and error
+// Uses cache to avoid repeated validation of same paths
 func (h *FileManagerHandler) validatePath(requestedPath string) (string, error) {
 	// Special case: "/" or empty path means baseDir root
 	if requestedPath == "" || requestedPath == "/" {
 		return h.baseDir, nil
+	}
+
+	// Check cache first
+	if cachedPath, ok := h.pathCache.get(requestedPath); ok {
+		return cachedPath, nil
 	}
 
 	// Clean the path to remove .. and other unsafe elements
@@ -98,6 +221,9 @@ func (h *FileManagerHandler) validatePath(requestedPath string) (string, error) 
 		return "", fmt.Errorf("access denied: path outside base directory")
 	}
 
+	// Cache the validated path
+	h.pathCache.set(requestedPath, absPath)
+
 	return absPath, nil
 }
 
@@ -113,7 +239,7 @@ func (h *FileManagerHandler) getRelativePath(absPath string) string {
 	return "/" + filepath.ToSlash(relPath)
 }
 
-// Browse lists files and directories
+// Browse lists files and directories with pagination
 func (h *FileManagerHandler) Browse(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUserFromContext(r.Context())
 	if !user.IsAdmin() {
@@ -124,6 +250,20 @@ func (h *FileManagerHandler) Browse(w http.ResponseWriter, r *http.Request) {
 	requestedPath := r.URL.Query().Get("path")
 	if requestedPath == "" {
 		requestedPath = "/"
+	}
+
+	// Parse pagination parameters
+	offset := 0
+	limit := 500 // Default: 500 items per page
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if parsed, err := strconv.Atoi(offsetStr); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 1000 {
+			limit = parsed
+		}
 	}
 
 	// Validate and get absolute path
@@ -157,9 +297,23 @@ func (h *FileManagerHandler) Browse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build file list
-	items := make([]FileInfo, 0, len(entries))
-	for _, entry := range entries {
+	totalCount := len(entries)
+
+	// Apply pagination
+	start := offset
+	end := offset + limit
+	if start > totalCount {
+		start = totalCount
+	}
+	if end > totalCount {
+		end = totalCount
+	}
+
+	paginatedEntries := entries[start:end]
+
+	// Build file list for current page
+	items := make([]FileInfo, 0, len(paginatedEntries))
+	for _, entry := range paginatedEntries {
 		info, err := entry.Info()
 		if err != nil {
 			continue // Skip files we can't stat
@@ -186,14 +340,18 @@ func (h *FileManagerHandler) Browse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := BrowseResponse{
-		Path:   h.getRelativePath(absPath),
-		Parent: parentPath,
-		Items:  items,
+		Path:       h.getRelativePath(absPath),
+		Parent:     parentPath,
+		Items:      items,
+		TotalCount: totalCount,
+		Offset:     offset,
+		Limit:      limit,
+		HasMore:    end < totalCount,
 	}
 
 	// Log browse event
 	h.eventStore.Add(events.EventFileBrowse, user.Username, getClientIP(r), true,
-		fmt.Sprintf("path=%s", h.getRelativePath(absPath)))
+		fmt.Sprintf("path=%s items=%d/%d", h.getRelativePath(absPath), len(items), totalCount))
 
 	writeJSON(w, http.StatusOK, response)
 }
@@ -252,7 +410,9 @@ func (h *FileManagerHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	// Set headers
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(absPath)))
+	// Sanitize filename to prevent HTTP header injection
+	safeFilename := sanitizeFilename(filepath.Base(absPath))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", safeFilename))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
 
 	// Stream file to client
@@ -507,6 +667,84 @@ func (h *FileManagerHandler) MkDir(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// CreateFile creates a new empty file
+func (h *FileManagerHandler) CreateFile(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUserFromContext(r.Context())
+	if !user.IsAdmin() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "File name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate file name (prevent path traversal)
+	fileName := filepath.Base(req.Name)
+	if fileName == "" || fileName == "." || fileName == ".." || strings.Contains(fileName, "/") || strings.Contains(fileName, "\\") {
+		http.Error(w, "Invalid file name", http.StatusBadRequest)
+		return
+	}
+
+	// Validate parent path
+	parentPath := req.Path
+	if parentPath == "" {
+		parentPath = "/"
+	}
+
+	absParentDir, err := h.validatePath(parentPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Check if parent is a directory
+	stat, err := os.Stat(absParentDir)
+	if err != nil || !stat.IsDir() {
+		http.Error(w, "Parent path is not a directory", http.StatusBadRequest)
+		return
+	}
+
+	// Create new file path
+	newFilePath := filepath.Join(absParentDir, fileName)
+
+	// Check if file already exists
+	if _, err := os.Stat(newFilePath); err == nil {
+		http.Error(w, "File already exists", http.StatusConflict)
+		return
+	}
+
+	// Create empty file
+	file, err := os.Create(newFilePath)
+	if err != nil {
+		http.Error(w, "Failed to create file", http.StatusInternalServerError)
+		log.Printf("Failed to create file %s: %v", newFilePath, err)
+		return
+	}
+	file.Close()
+
+	// Log file create event
+	h.eventStore.Add(events.EventFileWrite, user.Username, getClientIP(r), true,
+		fmt.Sprintf("path=%s action=create", h.getRelativePath(newFilePath)))
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"path":    h.getRelativePath(newFilePath),
+		"name":    fileName,
+	})
+}
+
 // Rename renames a file or directory
 func (h *FileManagerHandler) Rename(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUserFromContext(r.Context())
@@ -589,7 +827,7 @@ func (h *FileManagerHandler) Rename(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ReadFile reads file content for editing
+// ReadFile reads file content for editing (optimized for memory)
 func (h *FileManagerHandler) ReadFile(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUserFromContext(r.Context())
 	if !user.IsAdmin() {
@@ -633,23 +871,198 @@ func (h *FileManagerHandler) ReadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read file content
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		http.Error(w, "Failed to read file", http.StatusInternalServerError)
-		log.Printf("Failed to read file %s: %v", absPath, err)
+	// Detect MIME type by extension first (faster)
+	ext := strings.ToLower(filepath.Ext(absPath))
+	mimeType := getMimeTypeByExtension(ext)
+
+	// Check if file is binary
+	isBinary := isBinaryMimeType(mimeType) || isBinaryExtension(ext)
+
+	// For small files (< 1MB) or text files, read fully into memory
+	const smallFileThreshold = 1 * 1024 * 1024
+	if stat.Size() < smallFileThreshold || !isBinary {
+		// Read file content
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			http.Error(w, "Failed to read file", http.StatusInternalServerError)
+			log.Printf("Failed to read file %s: %v", absPath, err)
+			return
+		}
+
+		// Detect MIME type if not known
+		if mimeType == "" {
+			mimeType = http.DetectContentType(content)
+		}
+
+		// Determine encoding
+		encoding := "utf-8"
+		contentStr := string(content)
+
+		if isBinary {
+			// Encode binary content as base64
+			encoding = "base64"
+			contentStr = base64.StdEncoding.EncodeToString(content)
+		}
+
+		// Log read event
+		h.eventStore.Add(events.EventFileRead, user.Username, getClientIP(r), true,
+			fmt.Sprintf("file=%s size=%d", filepath.Base(absPath), stat.Size()))
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"content":  contentStr,
+			"name":     filepath.Base(absPath),
+			"size":     stat.Size(),
+			"mimeType": mimeType,
+			"encoding": encoding,
+			"path":     h.getRelativePath(absPath),
+		})
 		return
+	}
+
+	// For large binary files (>= 1MB), suggest streaming
+	// Return metadata only and let client request streaming
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
 	}
 
 	// Log read event
 	h.eventStore.Add(events.EventFileRead, user.Username, getClientIP(r), true,
-		fmt.Sprintf("file=%s size=%d", filepath.Base(absPath), stat.Size()))
+		fmt.Sprintf("file=%s size=%d (streaming recommended)", filepath.Base(absPath), stat.Size()))
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"content": string(content),
-		"name":    filepath.Base(absPath),
-		"size":    stat.Size(),
+		"content":           "",
+		"name":              filepath.Base(absPath),
+		"size":              stat.Size(),
+		"mimeType":          mimeType,
+		"encoding":          "stream", // Signal that streaming should be used
+		"streamingRequired": true,
+		"path":              h.getRelativePath(absPath),
 	})
+}
+
+// StreamFile streams file content (optimized for large binary files)
+func (h *FileManagerHandler) StreamFile(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUserFromContext(r.Context())
+	if !user.IsAdmin() {
+		http.Error(w, "Admin access required", http.StatusForbidden)
+		return
+	}
+
+	requestedPath := r.URL.Query().Get("path")
+	if requestedPath == "" {
+		http.Error(w, "Path is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate and get absolute path
+	absPath, err := h.validatePath(requestedPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Check if file exists
+	stat, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "File not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "Failed to access file", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	if stat.IsDir() {
+		http.Error(w, "Cannot stream directory", http.StatusBadRequest)
+		return
+	}
+
+	// Open file
+	file, err := os.Open(absPath)
+	if err != nil {
+		http.Error(w, "Failed to open file", http.StatusInternalServerError)
+		log.Printf("Failed to open file %s: %v", absPath, err)
+		return
+	}
+	defer file.Close()
+
+	// Detect content type
+	ext := strings.ToLower(filepath.Ext(absPath))
+	contentType := getMimeTypeByExtension(ext)
+	if contentType == "" {
+		contentType = mime.TypeByExtension(ext)
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// Set headers for inline viewing (not download)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// Support range requests for video/audio seeking
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	// Handle range requests (HTTP 206 Partial Content)
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		h.serveFileRange(w, r, file, stat.Size(), contentType)
+		return
+	}
+
+	// Stream entire file
+	_, err = io.Copy(w, file)
+	if err != nil {
+		log.Printf("Failed to stream file %s: %v", absPath, err)
+		return
+	}
+
+	// Log stream event
+	h.eventStore.Add(events.EventFileRead, user.Username, getClientIP(r), true,
+		fmt.Sprintf("stream file=%s size=%d", filepath.Base(absPath), stat.Size()))
+}
+
+// serveFileRange handles HTTP range requests for partial content
+func (h *FileManagerHandler) serveFileRange(w http.ResponseWriter, r *http.Request, file *os.File, fileSize int64, contentType string) {
+	rangeHeader := r.Header.Get("Range")
+
+	// Parse range header (format: "bytes=start-end")
+	var start, end int64
+	if _, err := fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end); err != nil {
+		// Try parsing "bytes=start-" format
+		if _, err := fmt.Sscanf(rangeHeader, "bytes=%d-", &start); err != nil {
+			http.Error(w, "Invalid range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		end = fileSize - 1
+	}
+
+	// Validate range
+	if start < 0 || start >= fileSize || end < start || end >= fileSize {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+		http.Error(w, "Invalid range", http.StatusRequestedRangeNotSatisfiable)
+		return
+	}
+
+	// Seek to start position
+	if _, err := file.Seek(start, 0); err != nil {
+		http.Error(w, "Failed to seek file", http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers for partial content
+	contentLength := end - start + 1
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.WriteHeader(http.StatusPartialContent)
+
+	// Stream the requested range
+	_, err := io.CopyN(w, file, contentLength)
+	if err != nil && err != io.EOF {
+		log.Printf("Failed to stream file range: %v", err)
+	}
 }
 
 // WriteFile saves file content after editing
@@ -715,4 +1128,51 @@ func (h *FileManagerHandler) WriteFile(w http.ResponseWriter, r *http.Request) {
 		"name":    filepath.Base(absPath),
 		"size":    len(req.Content),
 	})
+}
+
+// getMimeTypeByExtension returns MIME type for known file extensions
+func getMimeTypeByExtension(ext string) string {
+	return mimeTypesByExtension[ext]
+}
+
+// isBinaryMimeType checks if MIME type represents binary content
+func isBinaryMimeType(mimeType string) bool {
+	for _, prefix := range binaryMimePrefixes {
+		if strings.HasPrefix(mimeType, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isBinaryExtension checks if file extension represents binary content
+func isBinaryExtension(ext string) bool {
+	ext = strings.ToLower(ext)
+	for _, binaryExt := range binaryExtensions {
+		if ext == binaryExt {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitizeFilename removes dangerous characters from filename to prevent HTTP header injection
+func sanitizeFilename(filename string) string {
+	// Remove control characters, quotes, and newlines
+	sanitized := strings.Map(func(r rune) rune {
+		// Allow alphanumeric, common punctuation, spaces, and safe special chars
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '-' || r == '_' || r == '.' || r == ' ' {
+			return r
+		}
+		// Replace unsafe characters with underscore
+		return '_'
+	}, filename)
+
+	// Limit length to prevent overly long headers
+	if len(sanitized) > 255 {
+		sanitized = sanitized[:255]
+	}
+
+	return sanitized
 }

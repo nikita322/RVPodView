@@ -179,6 +179,18 @@ body {
     flex-shrink: 0;
 }
 
+/* SVG icons inside buttons */
+.btn span svg {
+    width: 16px;
+    height: 16px;
+    vertical-align: middle;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .btn-sm {
     padding: 8px 14px;
     font-size: 13px;
@@ -2284,5 +2296,739 @@ body.is-admin .page-actions .admin-only {
 
     .file-editor-actions {
         width: 100%;
+    }
+}
+
+/* Pagination */
+.fm-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-color);
+    margin-top: auto;
+}
+
+.pagination-info {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pagination-btn {
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-size: 0.9em;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--primary-color);
+}
+
+.pagination-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.pagination-pages {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    padding: 0 8px;
+}
+
+@media (max-width: 768px) {
+    .fm-pagination {
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .pagination-controls {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* ========================================
+   FILE VIEWER STYLES
+   ======================================== */
+
+/* File Viewer Wrapper */
+.file-viewer-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: calc(80vh - 120px);
+    min-height: 400px;
+}
+
+/* File Viewer Toolbar */
+.file-viewer-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    gap: 16px;
+}
+
+.file-viewer-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.file-viewer-filename {
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-viewer-filetype {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    padding: 2px 8px;
+    background: var(--bg);
+    border-radius: 4px;
+}
+
+.file-viewer-filesize {
+    color: var(--text-muted);
+    font-size: 0.85em;
+}
+
+.file-viewer-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.file-viewer-actions .btn {
+    padding: 6px 12px;
+    font-size: 0.9em;
+}
+
+/* File Viewer Content Container */
+.file-viewer-content {
+    flex: 1;
+    overflow: hidden;
+    background: var(--bg);
+    position: relative;
+    min-height: 0;
+}
+
+/* Text Viewer */
+.text-viewer-container {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+}
+
+.file-viewer-textarea {
+    width: 100%;
+    height: 100%;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    border: none;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
+    tab-size: 4;
+    box-sizing: border-box;
+    display: block;
+}
+
+.file-viewer-textarea:focus {
+    background: var(--bg-elevated);
+}
+
+/* Image Viewer */
+.image-viewer-container {
+    height: 100%;
+    width: 100%;
+    background: var(--bg-base);
+    position: relative;
+    overflow: hidden;
+}
+
+.image-viewer-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+    overflow: auto;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.file-viewer-image {
+    max-width: calc(100% - 40px);
+    max-height: calc(100% - 40px);
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    transition: transform 0.2s ease;
+    cursor: zoom-in;
+    display: block;
+}
+
+.image-viewer-controls {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: rgba(13, 17, 23, 0.9);
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+}
+
+.image-viewer-btn {
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.image-viewer-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.image-viewer-btn:hover {
+    background: var(--card-bg-hover);
+    border-color: var(--primary);
+}
+
+.image-viewer-info {
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    margin-left: 8px;
+    user-select: none;
+}
+
+/* Video Viewer */
+.video-viewer-container {
+    height: 100%;
+    width: 100%;
+    background: var(--bg-base);
+    position: relative;
+    overflow: hidden;
+}
+
+.video-viewer-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.file-viewer-video {
+    max-width: calc(100% - 40px);
+    max-height: calc(100% - 40px);
+    width: auto;
+    height: auto;
+    border-radius: 8px;
+    display: block;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.video-viewer-info {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    background: rgba(13, 17, 23, 0.9);
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+}
+
+/* Audio Viewer */
+.audio-viewer-container {
+    height: 100%;
+    width: 100%;
+    background: var(--bg);
+    overflow: auto;
+}
+
+.audio-viewer-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    width: 100%;
+    gap: 20px;
+    padding: 40px;
+    box-sizing: border-box;
+}
+
+.audio-viewer-icon {
+    font-size: 80px;
+    opacity: 0.5;
+    color: var(--text-secondary);
+}
+
+.audio-viewer-icon svg {
+    width: 64px;
+    height: 64px;
+}
+
+.audio-viewer-filename {
+    font-size: 1.2em;
+    font-weight: 600;
+    color: var(--text);
+    text-align: center;
+    max-width: 80%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-viewer-audio {
+    width: 100%;
+    max-width: 500px;
+    margin-top: 20px;
+}
+
+.audio-viewer-info {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    margin-top: 12px;
+}
+
+/* PDF Viewer */
+.pdf-viewer-container {
+    height: 100%;
+    width: 100%;
+    background: var(--bg-base);
+    position: relative;
+    overflow: hidden;
+}
+
+.file-viewer-pdf {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
+
+.pdf-viewer-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 20px;
+    padding: 40px;
+    text-align: center;
+}
+
+.fallback-icon {
+    font-size: 80px;
+    opacity: 0.5;
+    color: var(--text-secondary);
+}
+
+.fallback-icon svg {
+    width: 48px;
+    height: 48px;
+}
+
+.fallback-message {
+    color: var(--text-secondary);
+}
+
+.fallback-message p {
+    margin-bottom: 16px;
+}
+
+.pdf-viewer-info {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    color: var(--text-secondary);
+    font-size: 0.85em;
+    background: rgba(13, 17, 23, 0.9);
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+}
+
+/* Download Viewer */
+.download-viewer-container {
+    height: 100%;
+    width: 100%;
+    background: var(--bg);
+    overflow: auto;
+}
+
+.download-viewer-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    width: 100%;
+    gap: 24px;
+    padding: 40px;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+.download-viewer-icon {
+    font-size: 100px;
+    opacity: 0.4;
+    color: var(--text-secondary);
+}
+
+.download-viewer-icon svg {
+    width: 64px;
+    height: 64px;
+}
+
+.download-viewer-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.download-viewer-filename {
+    font-size: 1.3em;
+    font-weight: 600;
+    color: var(--text);
+    word-break: break-word;
+}
+
+.download-viewer-details {
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+}
+
+.download-viewer-details .separator {
+    opacity: 0.5;
+}
+
+.download-viewer-message {
+    color: var(--text-muted);
+    font-size: 0.95em;
+    margin-top: 8px;
+}
+
+.download-viewer-button {
+    margin-top: 16px;
+    padding: 12px 32px;
+    font-size: 1em;
+}
+
+/* Error and Loading States */
+.file-viewer-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 16px;
+    padding: 40px;
+    text-align: center;
+}
+
+.error-icon {
+    font-size: 60px;
+    opacity: 0.5;
+}
+
+.error-message {
+    color: var(--danger);
+    font-size: 1.1em;
+}
+
+.file-viewer-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: 20px;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loading-message {
+    color: var(--text-secondary);
+    font-size: 0.95em;
+}
+
+/* ========================================
+   RESPONSIVE ADJUSTMENTS FOR FILE VIEWER
+   ======================================== */
+
+/* Tablet (768px - 1024px) */
+@media (max-width: 1024px) {
+    .file-viewer-wrapper {
+        height: calc(85vh - 100px);
+        min-height: 350px;
+    }
+
+    .file-viewer-toolbar {
+        padding: 10px 14px;
+        gap: 12px;
+    }
+
+    .file-viewer-actions .btn {
+        padding: 5px 10px;
+        font-size: 0.85em;
+    }
+
+    .image-viewer-btn {
+        padding: 5px 10px;
+        font-size: 14px;
+    }
+
+    .image-viewer-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+}
+
+/* Mobile Large (480px - 768px) */
+@media (max-width: 768px) {
+    /* Make modal full width on mobile */
+    .modal-large {
+        width: 100%;
+        max-width: 100%;
+        max-height: 100vh;
+        height: 100vh;
+        margin: 0;
+        border-radius: 0;
+    }
+
+    .file-viewer-wrapper {
+        height: calc(100vh - 120px);
+        min-height: unset;
+    }
+
+    /* Stack toolbar vertically */
+    .file-viewer-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 10px;
+    }
+
+    /* Stack file info vertically */
+    .file-viewer-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    /* Make action buttons full width */
+    .file-viewer-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .file-viewer-actions .btn {
+        flex: 1;
+        min-width: 120px;
+        justify-content: center;
+    }
+
+    /* Reduce text viewer font size */
+    .file-viewer-textarea {
+        font-size: 13px;
+        padding: 12px;
+    }
+
+    /* Compact image controls */
+    .image-viewer-controls {
+        gap: 6px;
+        padding: 8px;
+        bottom: 10px;
+        font-size: 0.8em;
+    }
+
+    .image-viewer-btn {
+        padding: 4px 8px;
+        font-size: 14px;
+    }
+
+    .image-viewer-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Compact video/audio/pdf info */
+    .video-viewer-info,
+    .audio-viewer-info,
+    .pdf-viewer-info {
+        font-size: 0.75em;
+        padding: 6px 10px;
+    }
+
+    /* Reduce icon sizes */
+    .audio-viewer-icon svg,
+    .download-viewer-icon svg {
+        width: 48px;
+        height: 48px;
+    }
+
+    .fallback-icon svg {
+        width: 36px;
+        height: 36px;
+    }
+}
+
+/* Mobile Small (< 480px) */
+@media (max-width: 480px) {
+    /* Even more compact toolbar */
+    .file-viewer-toolbar {
+        padding: 8px;
+        gap: 8px;
+    }
+
+    .file-viewer-info span {
+        font-size: 0.85em;
+    }
+
+    .file-viewer-actions .btn {
+        padding: 6px 10px;
+        font-size: 0.8em;
+        min-width: 100px;
+    }
+
+    /* Smaller text in viewer */
+    .file-viewer-textarea {
+        font-size: 12px;
+        padding: 10px;
+        line-height: 1.5;
+    }
+
+    /* Compact image controls - 2 rows */
+    .image-viewer-controls {
+        flex-wrap: wrap;
+        justify-content: center;
+        max-width: 280px;
+        gap: 4px;
+        padding: 6px;
+    }
+
+    .image-viewer-btn {
+        padding: 6px;
+        font-size: 12px;
+        min-width: 36px;
+    }
+
+    .image-viewer-btn svg {
+        width: 14px;
+        height: 14px;
+    }
+
+    .image-viewer-info {
+        font-size: 0.7em;
+        width: 100%;
+        text-align: center;
+    }
+
+    /* Smaller icons for download viewer */
+    .audio-viewer-icon svg,
+    .download-viewer-icon svg {
+        width: 40px;
+        height: 40px;
+    }
+
+    .fallback-icon svg {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* Compact wrapper paddings */
+    .audio-viewer-wrapper,
+    .download-viewer-wrapper,
+    .pdf-viewer-fallback {
+        padding: 20px;
+        gap: 16px;
+    }
+
+    /* Smaller filenames */
+    .audio-viewer-filename,
+    .download-viewer-filename {
+        font-size: 1em;
+    }
+}
+
+/* Landscape orientation adjustments for mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+    .file-viewer-wrapper {
+        height: calc(100vh - 80px);
+    }
+
+    .file-viewer-toolbar {
+        flex-direction: row;
+        padding: 6px 10px;
+    }
+
+    .file-viewer-info {
+        flex-direction: row;
+        gap: 8px;
+    }
+
+    .image-viewer-controls {
+        bottom: 6px;
+        padding: 4px 8px;
     }
 }
