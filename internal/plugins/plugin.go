@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"podmanview/internal/config"
 	"podmanview/internal/events"
@@ -46,6 +47,16 @@ type Plugin interface {
 	// GetHTML returns the plugin's HTML interface
 	// This HTML will be embedded into the main index.html
 	GetHTML() (string, error)
+}
+
+// BackgroundTaskRunner is an optional interface for plugins that need to run background tasks
+// Plugins can implement this interface to run periodic tasks (monitoring, checks, updates, etc.)
+type BackgroundTaskRunner interface {
+	// StartBackgroundTasks starts the plugin's background tasks
+	// This method is called after Start() and should launch goroutines for background work
+	// The provided context will be cancelled when the plugin should stop its background tasks
+	// Example: monitoring, periodic checks, data updates, etc.
+	StartBackgroundTasks(ctx context.Context) error
 }
 
 // PluginDependencies contains dependencies available to plugins
@@ -180,5 +191,63 @@ func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		// Log encoding error but can't change response at this point
 		log.Printf("ERROR: Failed to encode JSON response: %v", err)
+	}
+}
+
+// RunPeriodic runs a function periodically until the context is cancelled
+// This is a helper for plugins that need to run background tasks
+// Usage example:
+//
+//	go RunPeriodic(ctx, 30*time.Second, p.logger, p.name, func(ctx context.Context) error {
+//	    // Your periodic task here
+//	    return p.checkStatus()
+//	})
+func RunPeriodic(ctx context.Context, interval time.Duration, logger *log.Logger, pluginName string, task func(context.Context) error) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Run task immediately on start
+	if err := task(ctx); err != nil {
+		if logger != nil {
+			logger.Printf("[%s] Background task error: %v", pluginName, err)
+		}
+	}
+
+	// Then run periodically
+	for {
+		select {
+		case <-ctx.Done():
+			if logger != nil {
+				logger.Printf("[%s] Background task stopped", pluginName)
+			}
+			return
+		case <-ticker.C:
+			if err := task(ctx); err != nil {
+				if logger != nil {
+					logger.Printf("[%s] Background task error: %v", pluginName, err)
+				}
+			}
+		}
+	}
+}
+
+// RunOnce runs a function once after a delay, unless the context is cancelled
+// This is useful for delayed initialization or one-time background tasks
+func RunOnce(ctx context.Context, delay time.Duration, logger *log.Logger, pluginName string, task func(context.Context) error) {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		if logger != nil {
+			logger.Printf("[%s] Delayed task cancelled", pluginName)
+		}
+		return
+	case <-timer.C:
+		if err := task(ctx); err != nil {
+			if logger != nil {
+				logger.Printf("[%s] Delayed task error: %v", pluginName, err)
+			}
+		}
 	}
 }

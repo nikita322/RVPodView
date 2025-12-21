@@ -121,6 +121,52 @@ body {
     color: var(--text-muted);
 }
 
+.form-group select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 16px;
+    background: var(--bg);
+    color: var(--text);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+}
+
+.form-group select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.form-group select option {
+    background: var(--bg);
+    color: var(--text);
+}
+
+/* Select element styles (general) */
+select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    background: var(--bg);
+    color: var(--text);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    cursor: pointer;
+}
+
+select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+select option {
+    background: var(--bg);
+    color: var(--text);
+}
+
 .checkbox-group {
     margin-bottom: 16px;
 }

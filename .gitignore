@@ -6,6 +6,9 @@ podmanview
 # Environment files
 .env
 
+# Database
+podmanview.db
+
 # IDE
 /.claude/
 /.idea/

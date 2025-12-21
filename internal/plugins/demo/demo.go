@@ -63,6 +63,19 @@ func (p *DemoPlugin) Stop(ctx context.Context) error {
 	return nil
 }
 
+// StartBackgroundTasks starts the plugin's background tasks
+// This is an example of how to implement periodic background work
+func (p *DemoPlugin) StartBackgroundTasks(ctx context.Context) error {
+	// Example: Log uptime every 30 seconds
+	go plugins.RunPeriodic(ctx, 30*time.Second, p.Logger(), p.Name(), func(ctx context.Context) error {
+		uptime := time.Since(p.startTime)
+		p.LogError("Uptime: %s, Counter: %d", uptime.Round(time.Second), p.counter)
+		return nil
+	})
+
+	return nil
+}
+
 // Routes returns the plugin's HTTP routes
 func (p *DemoPlugin) Routes() []plugins.Route {
 	return []plugins.Route{

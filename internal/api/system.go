@@ -10,6 +10,8 @@ import (
 	"podmanview/internal/auth"
 	"podmanview/internal/events"
 	"podmanview/internal/podman"
+	"podmanview/internal/plugins"
+	"podmanview/internal/plugins/temperature"
 )
 
 // Cache for system info and resource counts
@@ -29,13 +31,18 @@ var (
 
 // SystemHandler handles system endpoints
 type SystemHandler struct {
-	client     *podman.Client
-	eventStore *events.Store
+	client         *podman.Client
+	eventStore     *events.Store
+	pluginRegistry *plugins.Registry
 }
 
 // NewSystemHandler creates new system handler
-func NewSystemHandler(client *podman.Client, eventStore *events.Store) *SystemHandler {
-	return &SystemHandler{client: client, eventStore: eventStore}
+func NewSystemHandler(client *podman.Client, eventStore *events.Store, pluginRegistry *plugins.Registry) *SystemHandler {
+	return &SystemHandler{
+		client:         client,
+		eventStore:     eventStore,
+		pluginRegistry: pluginRegistry,
+	}
 }
 
 // DashboardInfo represents dashboard summary
@@ -96,6 +103,19 @@ func (h *SystemHandler) Dashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Get host stats (reads /proc, /sys)
 	hostStats := GetHostStats()
+
+	// Check if temperature plugin is enabled and get temperature data from it
+	if h.pluginRegistry != nil {
+		if tempPlugin, ok := h.pluginRegistry.Get("temperature"); ok && tempPlugin.IsEnabled() {
+			// Type assert to *temperature.TemperaturePlugin
+			if plugin, ok := tempPlugin.(*temperature.TemperaturePlugin); ok {
+				tempData := plugin.GetTemperatureData()
+				// Convert plugin temperature data to API temperature data
+				hostStats.Temperatures = convertTemperatures(tempData.Temperatures)
+				hostStats.StorageTemps = convertStorageTemps(tempData.StorageTemps)
+			}
+		}
+	}
 
 	containerCounts := ContainerCounts{Total: len(containers)}
 	for _, c := range containers {
@@ -263,4 +283,28 @@ func (h *SystemHandler) Shutdown(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		exec.Command("systemctl", "poweroff").Run()
 	}()
+}
+
+// convertTemperatures converts plugin temperature data to API temperature data
+func convertTemperatures(pluginTemps []temperature.Temperature) []Temperature {
+	result := make([]Temperature, len(pluginTemps))
+	for i, t := range pluginTemps {
+		result[i] = Temperature{
+			Label: t.Label,
+			Temp:  t.Temp,
+		}
+	}
+	return result
+}
+
+// convertStorageTemps converts plugin storage temperature data to API storage temperature data
+func convertStorageTemps(pluginStorageTemps []temperature.StorageTemp) []StorageTemp {
+	result := make([]StorageTemp, len(pluginStorageTemps))
+	for i, st := range pluginStorageTemps {
+		result[i] = StorageTemp{
+			Device:  st.Device,
+			Sensors: convertTemperatures(st.Sensors),
+		}
+	}
+	return result
 }

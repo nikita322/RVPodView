@@ -1,0 +1,306 @@
+<!-- Temperature Monitoring Plugin Interface v2.0 -->
+<section id="page-plugin-temperature" class="content-page hidden" data-plugin-version="2.0">
+    <div class="page-header">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="temperature-back-btn" class="btn-back" title="Back to Plugins">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <h1 style="margin: 0;">Temperature Monitoring</h1>
+        </div>
+        <div class="page-actions">
+            <button id="temperature-refresh-btn" class="btn">Refresh</button>
+        </div>
+    </div>
+
+    <!-- Settings Section -->
+    <div class="info-section">
+        <h2>Settings</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">Update Interval:</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <select id="update-interval">
+                        <option value="5">5 seconds</option>
+                        <option value="10">10 seconds</option>
+                        <option value="15" selected>15 seconds (default)</option>
+                        <option value="20">20 seconds</option>
+                        <option value="30">30 seconds</option>
+                        <option value="45">45 seconds</option>
+                        <option value="60">60 seconds</option>
+                    </select>
+                    <button id="save-settings-btn" class="btn btn-primary">Save</button>
+                </div>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Last Update:</span>
+                <span class="info-value" id="last-update-time">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Update Period:</span>
+                <span class="info-value" id="current-interval">15s</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CPU Temperatures Section -->
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>CPU / SoC Temperatures</h2>
+        <div id="plugin-cpu-temps" class="temps-grid">
+            <span class="info-value">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Storage Temperatures Section -->
+    <div id="plugin-storage-container"></div>
+
+    <!-- Statistics Section -->
+    <div class="info-section" style="margin-top: 20px;">
+        <h2>Statistics</h2>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">Total CPU Sensors:</span>
+                <span class="info-value" id="cpu-sensor-count">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Storage Devices:</span>
+                <span class="info-value" id="storage-device-count">-</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+// Temperature Plugin Client-side Logic
+(function() {
+    'use strict';
+
+    const TemperaturePlugin = {
+        initialized: false,
+        updateIntervalId: null,
+
+        init: function() {
+            if (this.initialized) {
+                console.log('[TemperaturePlugin] Already initialized, skipping');
+                return;
+            }
+            console.log('[TemperaturePlugin v2.0] Initializing...');
+            this.initialized = true;
+            this.bindEvents();
+            this.loadSettings();
+            this.loadTemperatureData();
+            this.startAutoUpdate();
+        },
+
+        cleanup: function() {
+            console.log('[TemperaturePlugin] Cleaning up...');
+            if (this.updateIntervalId) {
+                clearInterval(this.updateIntervalId);
+                this.updateIntervalId = null;
+            }
+            this.initialized = false;
+        },
+
+        bindEvents: function() {
+            const backBtn = document.getElementById('temperature-back-btn');
+            const refreshBtn = document.getElementById('temperature-refresh-btn');
+            const saveBtn = document.getElementById('save-settings-btn');
+
+            if (backBtn) {
+                backBtn.addEventListener('click', () => this.goBack());
+            }
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', () => this.loadTemperatureData());
+            }
+            if (saveBtn) {
+                saveBtn.addEventListener('click', () => this.saveSettings());
+            }
+        },
+
+        goBack: function() {
+            console.log('[TemperaturePlugin] goBack called');
+            if (typeof App !== 'undefined' && App.navigateTo) {
+                App.navigateTo('plugins');
+            } else {
+                console.error('[TemperaturePlugin] App or App.navigateTo not available');
+            }
+        },
+
+        renderTempItem: function(t) {
+            // Temperature thresholds (same as Dashboard)
+            // < 50°C = cool, 50-65°C = normal, 65-75°C = warm, 75-85°C = hot, > 85°C = critical
+            let tempClass = 'normal';
+            if (t.temp < 50) tempClass = 'cool';
+            else if (t.temp < 65) tempClass = 'normal';
+            else if (t.temp < 75) tempClass = 'warm';
+            else if (t.temp < 85) tempClass = 'hot';
+            else tempClass = 'critical';
+
+            return `
+                <div class="temp-item">
+                    <span class="temp-label">${t.label}</span>
+                    <span class="temp-value ${tempClass}">${t.temp.toFixed(1)}°C</span>
+                </div>
+            `;
+        },
+
+        renderStorageDevice: function(device) {
+            const sensorsHtml = device.sensors.map(t => this.renderTempItem(t)).join('');
+            return `
+                <div class="info-section" style="margin-top: 20px;">
+                    <h3>${device.device}</h3>
+                    <div class="temps-grid">
+                        ${sensorsHtml}
+                    </div>
+                </div>
+            `;
+        },
+
+        loadTemperatureData: async function() {
+            try {
+                const response = await fetch('/api/plugins/temperature/data', {
+                    headers: {
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    }
+                });
+
+                if (!response.ok) throw new Error('Failed to load temperature data');
+
+                const data = await response.json();
+
+                // Update CPU temperatures
+                const cpuTempsContainer = document.getElementById('plugin-cpu-temps');
+                if (data.temperatures && data.temperatures.length > 0) {
+                    cpuTempsContainer.innerHTML = data.temperatures.map(t => this.renderTempItem(t)).join('');
+                } else {
+                    cpuTempsContainer.innerHTML = '<span class="info-value">No CPU sensors found</span>';
+                }
+
+                // Update storage temperatures
+                const storageContainer = document.getElementById('plugin-storage-container');
+                if (data.storageTemps && data.storageTemps.length > 0) {
+                    storageContainer.innerHTML = data.storageTemps.map(device => this.renderStorageDevice(device)).join('');
+                } else {
+                    storageContainer.innerHTML = '';
+                }
+
+                // Update statistics
+                document.getElementById('cpu-sensor-count').textContent = data.temperatures ? data.temperatures.length : 0;
+                document.getElementById('storage-device-count').textContent = data.storageTemps ? data.storageTemps.length : 0;
+
+                // Update last update time
+                const now = new Date();
+                document.getElementById('last-update-time').textContent = now.toLocaleTimeString();
+
+            } catch (error) {
+                console.error('[TemperaturePlugin] Error loading temperature data:', error);
+                this.showError('Failed to load temperature data');
+            }
+        },
+
+        loadSettings: async function() {
+            try {
+                const response = await fetch('/api/plugins/temperature/settings', {
+                    headers: {
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    }
+                });
+
+                if (!response.ok) throw new Error('Failed to load settings');
+
+                const settings = await response.json();
+
+                // Update interval selector
+                if (settings.updateInterval) {
+                    document.getElementById('update-interval').value = settings.updateInterval;
+                    document.getElementById('current-interval').textContent = settings.updateInterval + 's';
+                }
+            } catch (error) {
+                console.error('[TemperaturePlugin] Error loading settings:', error);
+            }
+        },
+
+        saveSettings: async function() {
+            const interval = parseInt(document.getElementById('update-interval').value);
+            const saveBtn = document.getElementById('save-settings-btn');
+
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+
+            try {
+                const response = await fetch('/api/plugins/temperature/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    },
+                    body: JSON.stringify({ updateInterval: interval })
+                });
+
+                if (!response.ok) throw new Error('Failed to save settings');
+
+                document.getElementById('current-interval').textContent = interval + 's';
+                this.showSuccess('Settings saved successfully');
+
+                // Restart auto-update with new interval
+                this.startAutoUpdate();
+
+            } catch (error) {
+                console.error('[TemperaturePlugin] Error saving settings:', error);
+                this.showError('Failed to save settings');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save';
+            }
+        },
+
+        startAutoUpdate: function() {
+            if (this.updateIntervalId) {
+                clearInterval(this.updateIntervalId);
+            }
+
+            const interval = parseInt(document.getElementById('update-interval').value) * 1000;
+            this.updateIntervalId = setInterval(() => this.loadTemperatureData(), interval);
+        },
+
+        showSuccess: function(message) {
+            if (typeof showToast === 'function') {
+                showToast(message, 'success');
+            } else {
+                console.log('[TemperaturePlugin] Success:', message);
+            }
+        },
+
+        showError: function(message) {
+            if (typeof showToast === 'function') {
+                showToast(message, 'error');
+            } else {
+                console.error('[TemperaturePlugin] Error:', message);
+            }
+        }
+    };
+
+    // Initialize when page is shown
+    const temperaturePage = document.getElementById('page-plugin-temperature');
+    if (temperaturePage) {
+        // Listen for custom event when page is shown
+        temperaturePage.addEventListener('plugin-page-shown', function() {
+            console.log('[TemperaturePlugin] Page shown event received');
+            TemperaturePlugin.init();
+        });
+
+        // Listen for page hide to cleanup
+        temperaturePage.addEventListener('plugin-page-hidden', function() {
+            console.log('[TemperaturePlugin] Page hidden event received');
+            TemperaturePlugin.cleanup();
+        });
+
+        // Also init if already visible (fallback)
+        if (!temperaturePage.classList.contains('hidden')) {
+            console.log('[TemperaturePlugin] Page already visible, initializing...');
+            TemperaturePlugin.init();
+        }
+    }
+})();
+</script>

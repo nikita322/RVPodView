@@ -12,7 +12,7 @@ import (
 
 func TestBoltStorage(t *testing.T) {
 	// Create temporary database file in testdata
-	tmpFile := filepath.Join("testdata", "temp", "test_plugins.db")
+	tmpFile := filepath.Join("testdata", "temp", "test_podmanview.db")
 
 	// Ensure temp directory exists
 	os.MkdirAll(filepath.Dir(tmpFile), 0755)

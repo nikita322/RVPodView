@@ -102,7 +102,7 @@ func (s *Server) setupRoutes() {
 	authHandler := NewAuthHandler(s.pamAuth, s.jwtManager, s.wsTokenStore, s.eventStore)
 	containerHandler := NewContainerHandler(s.podmanClient, s.eventStore)
 	imageHandler := NewImageHandler(s.podmanClient, s.eventStore)
-	systemHandler := NewSystemHandler(s.podmanClient, s.eventStore)
+	systemHandler := NewSystemHandler(s.podmanClient, s.eventStore, s.pluginRegistry)
 	terminalHandler := NewTerminalHandler(s.podmanClient, s.wsTokenStore, s.eventStore, s.historyHandler)
 	eventsHandler := NewEventsHandler(s.eventStore)
 	updateHandler := NewUpdateHandler(s.updater, s.eventStore)

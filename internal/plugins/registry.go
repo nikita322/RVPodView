@@ -199,6 +199,24 @@ func (r *Registry) StartAll(ctx context.Context) error {
 	return nil
 }
 
+// StartBackgroundTasksAll starts background tasks for all plugins that implement BackgroundTaskRunner
+// This should be called after StartAll() to initialize background jobs
+// The provided context will be used for all background tasks - cancel it to stop them
+func (r *Registry) StartBackgroundTasksAll(ctx context.Context) error {
+	enabled := r.Enabled()
+
+	for _, p := range enabled {
+		// Check if plugin implements BackgroundTaskRunner interface
+		if runner, ok := p.(BackgroundTaskRunner); ok {
+			if err := runner.StartBackgroundTasks(ctx); err != nil {
+				return fmt.Errorf("failed to start background tasks for plugin %s: %w", p.Name(), err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // StopAll stops all enabled plugins in reverse order
 func (r *Registry) StopAll(ctx context.Context) error {
 	enabled := r.Enabled()

@@ -2,9 +2,6 @@ package api
 
 import (
 	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,15 +11,15 @@ import (
 
 // HostStats represents CPU, memory, temperature, uptime and disk info
 type HostStats struct {
-	CPUUsage        float64        `json:"cpuUsage"`
-	MemTotal        uint64         `json:"memTotal"`               // bytes
-	MemFree         uint64         `json:"memFree"`                // bytes (MemAvailable from /proc/meminfo)
-	Temperatures    []Temperature  `json:"temperatures"`           // CPU/SoC temperatures
-	StorageTemps    []StorageTemp  `json:"storageTemps,omitempty"` // NVMe/Storage temperatures grouped by device
-	Uptime          int64          `json:"uptime"`                 // seconds
-	DiskTotal       uint64         `json:"diskTotal"`              // bytes (deprecated, kept for compatibility)
-	DiskFree        uint64         `json:"diskFree"`               // bytes (deprecated, kept for compatibility)
-	Disks           []DiskInfo     `json:"disks,omitempty"`        // All disks info
+	CPUUsage     float64       `json:"cpuUsage"`
+	MemTotal     uint64        `json:"memTotal"`               // bytes
+	MemFree      uint64        `json:"memFree"`                // bytes (MemAvailable from /proc/meminfo)
+	Temperatures []Temperature `json:"temperatures"`           // CPU/SoC temperatures
+	StorageTemps []StorageTemp `json:"storageTemps,omitempty"` // NVMe/Storage temperatures grouped by device
+	Uptime       int64         `json:"uptime"`                 // seconds
+	DiskTotal    uint64        `json:"diskTotal"`              // bytes (deprecated, kept for compatibility)
+	DiskFree     uint64        `json:"diskFree"`               // bytes (deprecated, kept for compatibility)
+	Disks        []DiskInfo    `json:"disks,omitempty"`        // All disks info
 }
 
 // DiskInfo represents disk usage information
@@ -46,7 +43,8 @@ type Temperature struct {
 	Temp  float64 `json:"temp"`
 }
 
-// GetHostStats reads CPU usage, memory, temperatures and uptime from /sys and /proc
+// GetHostStats reads CPU usage, memory, uptime and disk info from /sys and /proc
+// Note: Temperature monitoring has been moved to the temperature plugin
 func GetHostStats() *HostStats {
 	stats := &HostStats{
 		Temperatures: []Temperature{},
@@ -60,11 +58,9 @@ func GetHostStats() *HostStats {
 	// Get memory info
 	stats.MemTotal, stats.MemFree = getMemoryInfo()
 
-	// Get CPU/SoC temperatures from hwmon
-	stats.Temperatures = getCPUTemperatures()
-
-	// Get NVMe/Storage temperatures (grouped by device)
-	stats.StorageTemps = getNVMeTemperaturesGrouped()
+	// Note: Temperature monitoring has been moved to the temperature plugin
+	// Temperatures and StorageTemps will be populated by the plugin if enabled
+	// If the plugin is disabled, these fields will remain empty arrays
 
 	// Get uptime
 	stats.Uptime = getUptime()
@@ -227,150 +223,8 @@ func readCPUStat() (total, idle int64) {
 	return total, idle
 }
 
-// friendlyTempNames maps system sensor names to human-readable names
-var friendlyTempNames = map[string]string{
-	"cluster0_thermal": "CPU Cluster 0",
-	"cluster1_thermal": "CPU Cluster 1",
-}
-
-// getCPUTemperatures reads CPU/SoC temperatures from /sys/class/hwmon
-func getCPUTemperatures() []Temperature {
-	temps := []Temperature{}
-
-	// Scan hwmon devices
-	hwmonPath := "/sys/class/hwmon"
-	entries, err := os.ReadDir(hwmonPath)
-	if err != nil {
-		return temps
-	}
-
-	for _, entry := range entries {
-		devicePath := filepath.Join(hwmonPath, entry.Name())
-
-		// Get device name
-		nameBytes, err := os.ReadFile(filepath.Join(devicePath, "name"))
-		if err != nil {
-			continue
-		}
-		deviceName := strings.TrimSpace(string(nameBytes))
-
-		// Find temp inputs
-		files, err := os.ReadDir(devicePath)
-		if err != nil {
-			continue
-		}
-
-		for _, f := range files {
-			if !strings.HasPrefix(f.Name(), "temp") || !strings.HasSuffix(f.Name(), "_input") {
-				continue
-			}
-
-			// Read temperature (in millidegrees)
-			tempBytes, err := os.ReadFile(filepath.Join(devicePath, f.Name()))
-			if err != nil {
-				continue
-			}
-
-			tempMilliC, err := strconv.ParseInt(strings.TrimSpace(string(tempBytes)), 10, 64)
-			if err != nil {
-				continue
-			}
-
-			tempC := float64(tempMilliC) / 1000.0
-
-			// Try to get label first, then use friendly name or device name
-			labelFile := strings.Replace(f.Name(), "_input", "_label", 1)
-			labelBytes, err := os.ReadFile(filepath.Join(devicePath, labelFile))
-			var label string
-			if err == nil {
-				label = strings.TrimSpace(string(labelBytes))
-			} else if friendly, ok := friendlyTempNames[deviceName]; ok {
-				label = friendly
-			} else {
-				label = deviceName
-			}
-
-			temps = append(temps, Temperature{
-				Label: label,
-				Temp:  tempC,
-			})
-		}
-	}
-
-	return temps
-}
-
-// getNVMeTemperaturesGrouped reads temperatures from NVMe devices and groups by device
-func getNVMeTemperaturesGrouped() []StorageTemp {
-	result := []StorageTemp{}
-
-	// Scan /sys/block for nvme devices
-	entries, err := os.ReadDir("/sys/block")
-	if err != nil {
-		return result
-	}
-
-	for _, entry := range entries {
-		deviceName := entry.Name()
-		if !strings.HasPrefix(deviceName, "nvme") {
-			continue
-		}
-
-		// Skip partitions (nvme0n1p1, etc)
-		if strings.Contains(deviceName, "p") {
-			continue
-		}
-
-		devicePath := "/dev/" + deviceName
-		if _, err := os.Stat(devicePath); err != nil {
-			continue
-		}
-
-		cmd := exec.Command("nvme", "smart-log", devicePath)
-		output, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-
-		outputStr := string(output)
-		deviceTemps := StorageTemp{
-			Device:  deviceName,
-			Sensors: []Temperature{},
-		}
-
-		// Parse main temperature: "temperature                             : 53 °C (326 K)"
-		reMain := regexp.MustCompile(`(?m)^temperature\s*:\s*(\d+)\s*°?C`)
-		if matches := reMain.FindStringSubmatch(outputStr); len(matches) >= 2 {
-			if tempC, err := strconv.ParseFloat(matches[1], 64); err == nil {
-				deviceTemps.Sensors = append(deviceTemps.Sensors, Temperature{
-					Label: "Composite",
-					Temp:  tempC,
-				})
-			}
-		}
-
-		// Parse temperature sensors: "Temperature Sensor 1           : 76 °C (349 K)"
-		reSensors := regexp.MustCompile(`Temperature Sensor (\d+)\s*:\s*(\d+)\s*°C`)
-		sensorMatches := reSensors.FindAllStringSubmatch(outputStr, -1)
-		for _, match := range sensorMatches {
-			if len(match) >= 3 {
-				sensorNum := match[1]
-				if tempC, err := strconv.ParseFloat(match[2], 64); err == nil {
-					deviceTemps.Sensors = append(deviceTemps.Sensors, Temperature{
-						Label: "Sensor " + sensorNum,
-						Temp:  tempC,
-					})
-				}
-			}
-		}
-
-		if len(deviceTemps.Sensors) > 0 {
-			result = append(result, deviceTemps)
-		}
-	}
-
-	return result
-}
+// Note: Temperature monitoring functions (getCPUTemperatures, getNVMeTemperaturesGrouped)
+// have been moved to the temperature plugin (internal/plugins/temperature)
 
 // getAllDisksUsage returns usage info for all mounted block devices
 func getAllDisksUsage() []DiskInfo {

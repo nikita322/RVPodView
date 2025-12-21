@@ -1196,22 +1196,35 @@ const App = {
                     disksList.style.display = 'none';
                 }
 
-                // Update CPU temperatures
+                // Update temperatures section
+                const tempsSection = document.getElementById('temps-section');
                 const tempsCpu = document.getElementById('temps-cpu');
-                if (data.hostStats.temperatures && data.hostStats.temperatures.length > 0) {
-                    tempsCpu.innerHTML = data.hostStats.temperatures.map(t => this.renderTempItem(t)).join('');
-                } else {
-                    tempsCpu.innerHTML = '<span class="info-value">No sensors found</span>';
-                }
-
-                // Update Storage temperatures (grouped by device)
                 const tempsStorageContainer = document.getElementById('temps-storage-container');
-                if (data.hostStats.storageTemps && data.hostStats.storageTemps.length > 0) {
-                    tempsStorageContainer.innerHTML = data.hostStats.storageTemps.map(device => this.renderStorageDevice(device)).join('');
-                    tempsStorageContainer.style.display = '';
+
+                const hasCpuTemps = data.hostStats.temperatures && data.hostStats.temperatures.length > 0;
+                const hasStorageTemps = data.hostStats.storageTemps && data.hostStats.storageTemps.length > 0;
+
+                // Hide entire section if no temperature data at all
+                if (!hasCpuTemps && !hasStorageTemps) {
+                    tempsSection.style.display = 'none';
                 } else {
-                    tempsStorageContainer.style.display = 'none';
-                    tempsStorageContainer.innerHTML = '';
+                    tempsSection.style.display = '';
+
+                    // Update CPU temperatures
+                    if (hasCpuTemps) {
+                        tempsCpu.innerHTML = data.hostStats.temperatures.map(t => this.renderTempItem(t)).join('');
+                    } else {
+                        tempsCpu.innerHTML = '<span class="info-value">No sensors found</span>';
+                    }
+
+                    // Update Storage temperatures (grouped by device)
+                    if (hasStorageTemps) {
+                        tempsStorageContainer.innerHTML = data.hostStats.storageTemps.map(device => this.renderStorageDevice(device)).join('');
+                        tempsStorageContainer.style.display = '';
+                    } else {
+                        tempsStorageContainer.style.display = 'none';
+                        tempsStorageContainer.innerHTML = '';
+                    }
                 }
             }
         } catch (error) {

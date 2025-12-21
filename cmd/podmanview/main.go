@@ -18,6 +18,7 @@ import (
 	"podmanview/internal/podman"
 	"podmanview/internal/plugins"
 	"podmanview/internal/plugins/demo"
+	"podmanview/internal/plugins/temperature"
 	"podmanview/internal/storage"
 )
 
@@ -25,7 +26,7 @@ const (
 	pluginInitTimeout  = 30 * time.Second
 	pluginStartTimeout = 10 * time.Second
 	shutdownTimeout    = 10 * time.Second
-	pluginsDBFile      = "plugins.db"
+	pluginsDBFile      = "podmanview.db"
 )
 
 // Version is set at build time via -ldflags "-X main.Version=vX.Y.Z"
@@ -68,10 +69,11 @@ func main() {
 	// Create event store
 	eventStore := events.NewStore(100)
 
-	// Create or open BoltDB storage for plugins
+	// Create or open BoltDB storage for application data
+	// This stores: plugin configs, plugin data, command history, etc.
 	pluginStorage, err := storage.NewBoltStorage(pluginsDBFile)
 	if err != nil {
-		log.Fatalf("Failed to create plugin storage: %v", err)
+		log.Fatalf("Failed to create application storage: %v", err)
 	}
 	defer pluginStorage.Close()
 
@@ -89,6 +91,19 @@ func main() {
 		}
 	}
 
+	// Check if temperature plugin exists in storage
+	_, err = pluginStorage.GetPluginConfig("temperature")
+	if err == storage.ErrPluginNotFound {
+		// Set default configuration for temperature plugin
+		log.Printf("Initializing default configuration for temperature plugin")
+		if err := pluginStorage.SetPluginConfig("temperature", &storage.PluginConfig{
+			Enabled: true,
+			Name:    "Temperature Monitoring",
+		}); err != nil {
+			log.Printf("Warning: Failed to set default temperature plugin config: %v", err)
+		}
+	}
+
 	// Create plugin registry
 	pluginRegistry := plugins.NewRegistry()
 
@@ -96,6 +111,10 @@ func main() {
 	// Add your plugins here
 	if err := pluginRegistry.Register(demo.New()); err != nil {
 		log.Fatalf("Failed to register demo plugin: %v", err)
+	}
+
+	if err := pluginRegistry.Register(temperature.New()); err != nil {
+		log.Fatalf("Failed to register temperature plugin: %v", err)
 	}
 
 	log.Printf("Registered %d plugins", pluginRegistry.Count())
@@ -141,6 +160,18 @@ func main() {
 			log.Fatalf("Failed to start plugin %s: %v", p.Name(), err)
 		}
 		cancel()
+	}
+
+	// Start background tasks for plugins that support them
+	// Use main context - background tasks will be cancelled on shutdown
+	for _, p := range enabledPlugins {
+		// Check if plugin implements BackgroundTaskRunner interface
+		if runner, ok := p.(plugins.BackgroundTaskRunner); ok {
+			if err := runner.StartBackgroundTasks(ctx); err != nil {
+				log.Fatalf("Failed to start background tasks for plugin %s: %v", p.Name(), err)
+			}
+			log.Printf("Started background tasks for plugin: %s", p.Name())
+		}
 	}
 
 	// Create API server with ALL plugins (not just enabled)
