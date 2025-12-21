@@ -63,6 +63,9 @@ type Storage interface {
 	// GetInt retrieves int data for a plugin by key
 	GetInt(pluginName, key string) (int, error)
 
+	// GetBool retrieves bool data for a plugin by key
+	GetBool(pluginName, key string) (bool, error)
+
 	// GetJSON retrieves and unmarshals JSON data for a plugin by key
 	GetJSON(pluginName, key string, v interface{}) error
 
@@ -74,6 +77,9 @@ type Storage interface {
 
 	// SetInt stores int data for a plugin by key
 	SetInt(pluginName, key string, value int) error
+
+	// SetBool stores bool data for a plugin by key
+	SetBool(pluginName, key string, value bool) error
 
 	// SetJSON marshals and stores JSON data for a plugin by key
 	SetJSON(pluginName, key string, v interface{}) error

@@ -20,6 +20,13 @@ const (
 	EnvJWTExpiration = "PODMANVIEW_JWT_EXPIRATION"
 	EnvNoAuth        = "PODMANVIEW_NO_AUTH"
 	EnvSocket        = "PODMANVIEW_SOCKET"
+	// MQTT settings
+	EnvMQTTBroker   = "PODMANVIEW_MQTT_BROKER"
+	EnvMQTTClientID = "PODMANVIEW_MQTT_CLIENT_ID"
+	EnvMQTTUsername = "PODMANVIEW_MQTT_USERNAME"
+	EnvMQTTPassword = "PODMANVIEW_MQTT_PASSWORD"
+	EnvMQTTPrefix   = "PODMANVIEW_MQTT_PREFIX"
+	EnvMQTTUseTLS   = "PODMANVIEW_MQTT_USE_TLS"
 )
 
 // Default values
@@ -28,6 +35,13 @@ const (
 	DefaultJWTExpiration = 24 * time.Hour
 	DefaultNoAuth        = false
 	DefaultSocket        = "" // auto-detect
+	// MQTT defaults
+	DefaultMQTTBroker   = ""
+	DefaultMQTTClientID = ""
+	DefaultMQTTUsername = ""
+	DefaultMQTTPassword = ""
+	DefaultMQTTPrefix   = "podmanview"
+	DefaultMQTTUseTLS   = false
 )
 
 // Config holds all application configuration.
@@ -47,6 +61,14 @@ type Config struct {
 
 	// Podman settings
 	socketPath string
+
+	// MQTT settings
+	mqttBroker   string
+	mqttClientID string
+	mqttUsername string
+	mqttPassword string
+	mqttPrefix   string
+	mqttUseTLS   bool
 }
 
 // Load loads configuration from .env file or creates it with defaults.
@@ -100,6 +122,13 @@ func (c *Config) setDefaults() {
 	c.jwtExpiration = DefaultJWTExpiration
 	c.noAuth = DefaultNoAuth
 	c.socketPath = DefaultSocket
+	// MQTT defaults
+	c.mqttBroker = DefaultMQTTBroker
+	c.mqttClientID = DefaultMQTTClientID
+	c.mqttUsername = DefaultMQTTUsername
+	c.mqttPassword = DefaultMQTTPassword
+	c.mqttPrefix = DefaultMQTTPrefix
+	c.mqttUseTLS = DefaultMQTTUseTLS
 }
 
 // loadFromFile reads configuration from .env file.
@@ -141,6 +170,26 @@ func (c *Config) applyValues(values map[string]string) {
 
 	if v, ok := values[EnvSocket]; ok {
 		c.socketPath = v
+	}
+
+	// MQTT settings
+	if v, ok := values[EnvMQTTBroker]; ok {
+		c.mqttBroker = v
+	}
+	if v, ok := values[EnvMQTTClientID]; ok {
+		c.mqttClientID = v
+	}
+	if v, ok := values[EnvMQTTUsername]; ok {
+		c.mqttUsername = v
+	}
+	if v, ok := values[EnvMQTTPassword]; ok {
+		c.mqttPassword = v
+	}
+	if v, ok := values[EnvMQTTPrefix]; ok {
+		c.mqttPrefix = v
+	}
+	if v, ok := values[EnvMQTTUseTLS]; ok {
+		c.mqttUseTLS = parseBool(v)
 	}
 }
 
@@ -214,6 +263,13 @@ func (c *Config) toMap() map[string]string {
 		EnvJWTExpiration: strconv.Itoa(int(c.jwtExpiration.Seconds())),
 		EnvNoAuth:        strconv.FormatBool(c.noAuth),
 		EnvSocket:        c.socketPath,
+		// MQTT settings
+		EnvMQTTBroker:   c.mqttBroker,
+		EnvMQTTClientID: c.mqttClientID,
+		EnvMQTTUsername: c.mqttUsername,
+		EnvMQTTPassword: c.mqttPassword,
+		EnvMQTTPrefix:   c.mqttPrefix,
+		EnvMQTTUseTLS:   strconv.FormatBool(c.mqttUseTLS),
 	}
 }
 
@@ -259,6 +315,50 @@ func (c *Config) FilePath() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.filePath
+}
+
+// MQTT Getters
+
+// MQTTBroker returns the MQTT broker address.
+func (c *Config) MQTTBroker() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.mqttBroker
+}
+
+// MQTTClientID returns the MQTT client ID.
+func (c *Config) MQTTClientID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.mqttClientID
+}
+
+// MQTTUsername returns the MQTT username.
+func (c *Config) MQTTUsername() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.mqttUsername
+}
+
+// MQTTPassword returns the MQTT password.
+func (c *Config) MQTTPassword() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.mqttPassword
+}
+
+// MQTTPrefix returns the MQTT topic prefix.
+func (c *Config) MQTTPrefix() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.mqttPrefix
+}
+
+// MQTTUseTLS returns whether TLS is enabled for MQTT.
+func (c *Config) MQTTUseTLS() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.mqttUseTLS
 }
 
 // Setters (thread-safe, auto-save)

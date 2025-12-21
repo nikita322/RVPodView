@@ -3,8 +3,6 @@ package temperature
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,19 +12,22 @@ import (
 	"sync"
 	"time"
 
+	"podmanview/internal/mqtt"
 	"podmanview/internal/plugins"
+	"podmanview/internal/storage"
 )
 
 // TemperaturePlugin monitors system temperatures
 type TemperaturePlugin struct {
 	*plugins.BasePlugin
-	mu               sync.RWMutex
-	cachedData       *TemperatureData
-	lastUpdate       time.Time
-	updatePeriod     time.Duration
-	backgroundCtx    context.Context
-	backgroundCancel context.CancelFunc
-	bgMutex          sync.Mutex
+	mu                sync.RWMutex
+	cachedData        *TemperatureData
+	lastUpdate        time.Time
+	updatePeriod      time.Duration
+	backgroundCtx     context.Context
+	backgroundCancel  context.CancelFunc
+	bgMutex           sync.Mutex
+	mqttEnabled       bool // MQTT publishing enabled flag
 }
 
 // Temperature represents a temperature sensor reading
@@ -71,21 +72,17 @@ func New() *TemperaturePlugin {
 func (p *TemperaturePlugin) Init(ctx context.Context, deps *plugins.PluginDependencies) error {
 	p.SetDependencies(deps)
 
-	// Load update interval from storage
-	if deps.Storage != nil {
-		interval, err := deps.Storage.GetInt(p.Name(), "updateInterval")
-		if err == nil && interval >= 5 && interval <= 60 {
-			p.mu.Lock()
-			p.updatePeriod = time.Duration(interval) * time.Second
-			p.mu.Unlock()
+	// Load settings from storage (update interval, MQTT enabled state)
+	p.loadSettings(deps.Storage)
+
+	// MQTT инициализация НЕ нужна - используем deps.MQTTClient
+	if deps.MQTTClient != nil && p.mqttEnabled {
+		if err := deps.MQTTClient.Connect(); err != nil {
 			if p.Logger() != nil {
-				p.Logger().Printf("[%s] Loaded update interval from storage: %d seconds", p.Name(), interval)
+				p.Logger().Printf("[%s] Failed to connect to MQTT: %v", p.Name(), err)
 			}
 		} else {
-			// Save default interval if not set
-			if err != nil {
-				deps.Storage.SetInt(p.Name(), "updateInterval", 15)
-			}
+			deps.MQTTClient.Publish("sensor/temperature/availability", []byte("online"))
 		}
 	}
 
@@ -117,8 +114,15 @@ func (p *TemperaturePlugin) Stop(ctx context.Context) error {
 	}
 	p.bgMutex.Unlock()
 
+	// Graceful MQTT shutdown
+	deps := p.Deps()
+	if p.mqttEnabled && deps != nil && deps.MQTTClient != nil && deps.MQTTClient.IsConnected() {
+		deps.MQTTClient.Publish("sensor/temperature/availability", []byte("offline"))
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	if p.Logger() != nil {
-		p.Logger().Printf("[%s] Plugin stopped", p.Name())
+		p.Logger().Printf("[%s] Plugin stopped gracefully", p.Name())
 	}
 	return nil
 }
@@ -142,6 +146,18 @@ func (p *TemperaturePlugin) Routes() []plugins.Route {
 			Method:      "POST",
 			Path:        "/api/plugins/temperature/settings",
 			Handler:     p.handleUpdateSettings,
+			RequireAuth: true,
+		},
+		{
+			Method:      "GET",
+			Path:        "/api/plugins/temperature/mqtt",
+			Handler:     p.handleGetMQTTStatus,
+			RequireAuth: true,
+		},
+		{
+			Method:      "POST",
+			Path:        "/api/plugins/temperature/mqtt",
+			Handler:     p.handleToggleMQTT,
 			RequireAuth: true,
 		},
 	}
@@ -225,82 +241,36 @@ func (p *TemperaturePlugin) updateTemperatureData() {
 	p.mu.Lock()
 	p.cachedData = newData
 	p.lastUpdate = time.Now()
+	mqttEnabled := p.mqttEnabled
 	p.mu.Unlock()
 
-	// Log update (check if logger is available)
+	// Log update
 	if p.Logger() != nil {
 		p.Logger().Printf("[%s] Temperature data updated: %d CPU sensors, %d storage devices",
 			p.Name(), len(newData.Temperatures), len(newData.StorageTemps))
 	}
-}
 
-// HTTP Handlers
+	// НОВОЕ: Публикация через общий Publisher
+	deps := p.Deps()
+	if mqttEnabled && deps != nil && deps.MQTTPublisher != nil && deps.MQTTClient != nil && deps.MQTTClient.IsConnected() {
+		// 1. Агрегированный JSON (1 сообщение вместо 21)
+		deps.MQTTPublisher.PublishAggregated("sensor/temperature/state", newData)
 
-func (p *TemperaturePlugin) handleGetTemperatures(w http.ResponseWriter, r *http.Request) {
-	data := p.GetTemperatureData()
-	plugins.WriteJSON(w, http.StatusOK, data)
-}
-
-// PluginSettings represents plugin configuration
-type PluginSettings struct {
-	UpdateInterval int `json:"updateInterval"` // Update interval in seconds
-}
-
-func (p *TemperaturePlugin) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	p.mu.RLock()
-	interval := int(p.updatePeriod.Seconds())
-	p.mu.RUnlock()
-
-	settings := PluginSettings{
-		UpdateInterval: interval,
-	}
-
-	plugins.WriteJSON(w, http.StatusOK, settings)
-}
-
-func (p *TemperaturePlugin) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
-	var settings PluginSettings
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-		return
-	}
-
-	// Validate interval (5-60 seconds)
-	if settings.UpdateInterval < 5 || settings.UpdateInterval > 60 {
-		plugins.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Update interval must be between 5 and 60 seconds"})
-		return
-	}
-
-	// Update in-memory interval
-	p.mu.Lock()
-	p.updatePeriod = time.Duration(settings.UpdateInterval) * time.Second
-	p.mu.Unlock()
-
-	// Save to storage
-	if p.Deps() != nil && p.Deps().Storage != nil {
-		if err := p.Deps().Storage.SetInt(p.Name(), "updateInterval", settings.UpdateInterval); err != nil {
-			if p.Logger() != nil {
-				p.Logger().Printf("[%s] Failed to save update interval to storage: %v", p.Name(), err)
+		// 2. Discovery если нужно
+		if deps.MQTTDiscovery != nil {
+			currentCount := len(newData.Temperatures)
+			for _, storage := range newData.StorageTemps {
+				currentCount += len(storage.Sensors)
 			}
-			plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save settings"})
-			return
+
+			if deps.MQTTDiscovery.ShouldRepublishDiscovery(currentCount) {
+				p.publishDiscoveryConfigs(newData, deps)
+			}
 		}
-	}
 
-	// Restart background task with new interval
-	if err := p.RestartBackgroundTasks(); err != nil {
-		if p.Logger() != nil {
-			p.Logger().Printf("[%s] Failed to restart background tasks: %v", p.Name(), err)
-		}
-		plugins.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to restart background tasks"})
-		return
+		// 3. Индивидуальные сенсоры
+		p.publishIndividualSensors(newData, deps)
 	}
-
-	if p.Logger() != nil {
-		p.Logger().Printf("[%s] Update interval changed to %d seconds and background task restarted", p.Name(), settings.UpdateInterval)
-	}
-
-	plugins.WriteJSON(w, http.StatusOK, map[string]string{"status": "Settings updated successfully"})
 }
 
 // GetTemperatureData returns cached temperature data
@@ -320,6 +290,41 @@ func (p *TemperaturePlugin) GetLastUpdateTime() time.Time {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.lastUpdate
+}
+
+// loadSettings loads plugin settings from storage
+func (p *TemperaturePlugin) loadSettings(storage storage.Storage) {
+	if storage == nil {
+		return
+	}
+
+	// Load update interval
+	interval, err := storage.GetInt(p.Name(), "updateInterval")
+	if err == nil && interval >= 5 && interval <= 60 {
+		p.mu.Lock()
+		p.updatePeriod = time.Duration(interval) * time.Second
+		p.mu.Unlock()
+		if p.Logger() != nil {
+			p.Logger().Printf("[%s] Loaded update interval: %d seconds", p.Name(), interval)
+		}
+	} else if err != nil {
+		// Save default interval if not set
+		storage.SetInt(p.Name(), "updateInterval", 15)
+	}
+
+	// Load MQTT enabled state
+	mqttEnabled, err := storage.GetBool(p.Name(), "mqttEnabled")
+	if err == nil {
+		p.mu.Lock()
+		p.mqttEnabled = mqttEnabled
+		p.mu.Unlock()
+		if p.Logger() != nil {
+			p.Logger().Printf("[%s] Loaded MQTT enabled state: %v", p.Name(), mqttEnabled)
+		}
+	} else {
+		// Save default state if not set
+		storage.SetBool(p.Name(), "mqttEnabled", false)
+	}
 }
 
 // GetFriendlyName converts system sensor names to human-readable names
@@ -540,5 +545,113 @@ func getNVMeTemperaturesGrouped() []StorageTemp {
 		}
 	}
 
+	return result
+}
+
+// publishIndividualSensors публикует отдельные сенсоры через общий Publisher
+func (p *TemperaturePlugin) publishIndividualSensors(data *TemperatureData, deps *plugins.PluginDependencies) {
+	if data == nil || deps.MQTTPublisher == nil {
+		return
+	}
+
+	// CPU/SoC температуры
+	for _, temp := range data.Temperatures {
+		sensorData := &mqtt.SensorData{
+			ID:    temp.Label,
+			Label: temp.Label,
+			Value: temp.Temp,
+			Attributes: map[string]interface{}{
+				"temperature": temp.Temp,
+				"label":       temp.Label,
+				"unit":        "°C",
+			},
+		}
+		deps.MQTTPublisher.PublishSensorState(sensorData)
+	}
+
+	// Storage температуры
+	for _, storage := range data.StorageTemps {
+		for _, temp := range storage.Sensors {
+			sensorID := storage.Device + "_" + temp.Label
+			sensorData := &mqtt.SensorData{
+				ID:    sensorID,
+				Label: storage.Device + " " + temp.Label,
+				Value: temp.Temp,
+				Attributes: map[string]interface{}{
+					"temperature": temp.Temp,
+					"device":      storage.Device,
+					"sensor":      temp.Label,
+					"unit":        "°C",
+				},
+			}
+			deps.MQTTPublisher.PublishSensorState(sensorData)
+		}
+	}
+}
+
+// publishDiscoveryConfigs публикует discovery конфигурации через общий DiscoveryManager
+func (p *TemperaturePlugin) publishDiscoveryConfigs(data *TemperatureData, deps *plugins.PluginDependencies) {
+	if data == nil || deps.MQTTDiscovery == nil {
+		return
+	}
+
+	configs := make([]*mqtt.SensorConfig, 0)
+
+	// Device info для группировки
+	deviceInfo := &mqtt.DeviceInfo{
+		Identifiers:  []string{"podmanview"},
+		Name:         "PodmanView",
+		Model:        "Temperature Monitor",
+		Manufacturer: "PodmanView",
+	}
+
+	// CPU/SoC сенсоры
+	for _, temp := range data.Temperatures {
+		sensorID := sanitizeSensorID(temp.Label)
+		cfg := &mqtt.SensorConfig{
+			SensorID:          sensorID,
+			Name:              temp.Label + " Temperature",
+			SensorType:        mqtt.SensorTypeTemperature,
+			Unit:              "°C",
+			StateTopic:        "sensor/" + sensorID + "/state",
+			AttributesTopic:   "sensor/" + sensorID + "/attributes",
+			DeviceClass:       "temperature",
+			StateClass:        "measurement",
+			AvailabilityTopic: "sensor/temperature/availability",
+			DeviceInfo:        deviceInfo,
+		}
+		configs = append(configs, cfg)
+	}
+
+	// Storage сенсоры
+	for _, storage := range data.StorageTemps {
+		for _, temp := range storage.Sensors {
+			sensorID := sanitizeSensorID(storage.Device + "_" + temp.Label)
+			cfg := &mqtt.SensorConfig{
+				SensorID:          sensorID,
+				Name:              storage.Device + " " + temp.Label + " Temperature",
+				SensorType:        mqtt.SensorTypeTemperature,
+				Unit:              "°C",
+				StateTopic:        "sensor/" + sensorID + "/state",
+				AttributesTopic:   "sensor/" + sensorID + "/attributes",
+				DeviceClass:       "temperature",
+				StateClass:        "measurement",
+				AvailabilityTopic: "sensor/temperature/availability",
+				DeviceInfo:        deviceInfo,
+			}
+			configs = append(configs, cfg)
+		}
+	}
+
+	deps.MQTTDiscovery.PublishMultipleDiscoveryConfigs(configs)
+}
+
+// sanitizeSensorID создает безопасный ID для MQTT топиков
+// Publisher.getSanitizedID сделает кэширование результата
+func sanitizeSensorID(name string) string {
+	result := strings.ToLower(name)
+	result = strings.ReplaceAll(result, " ", "_")
+	result = strings.ReplaceAll(result, "/", "_")
+	result = strings.ReplaceAll(result, ".", "_")
 	return result
 }

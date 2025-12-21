@@ -10,6 +10,7 @@ import (
 
 	"podmanview/internal/config"
 	"podmanview/internal/events"
+	"podmanview/internal/mqtt"
 	"podmanview/internal/podman"
 	"podmanview/internal/storage"
 )
@@ -75,6 +76,11 @@ type PluginDependencies struct {
 
 	// Storage is the storage for plugin configurations and data
 	Storage storage.Storage
+
+	// MQTT services (can be nil if MQTT is not configured)
+	MQTTClient    *mqtt.Client           // MQTT client for direct publishing
+	MQTTPublisher *mqtt.Publisher        // Publisher for sensor data
+	MQTTDiscovery *mqtt.DiscoveryManager // Home Assistant discovery manager
 }
 
 // Route represents a plugin's HTTP route

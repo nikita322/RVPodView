@@ -271,6 +271,21 @@ func (s *BoltStorage) GetInt(pluginName, key string) (int, error) {
 	return value, nil
 }
 
+// GetBool retrieves bool data for a plugin by key
+func (s *BoltStorage) GetBool(pluginName, key string) (bool, error) {
+	data, err := s.Get(pluginName, key)
+	if err != nil {
+		return false, err
+	}
+
+	value, err := strconv.ParseBool(string(data))
+	if err != nil {
+		return false, fmt.Errorf("failed to parse bool: %w", err)
+	}
+
+	return value, nil
+}
+
 // GetJSON retrieves and unmarshals JSON data for a plugin by key
 func (s *BoltStorage) GetJSON(pluginName, key string, v interface{}) error {
 	data, err := s.Get(pluginName, key)
@@ -311,6 +326,11 @@ func (s *BoltStorage) SetString(pluginName, key string, value string) error {
 // SetInt stores int data for a plugin by key
 func (s *BoltStorage) SetInt(pluginName, key string, value int) error {
 	return s.Set(pluginName, key, []byte(strconv.Itoa(value)))
+}
+
+// SetBool stores bool data for a plugin by key
+func (s *BoltStorage) SetBool(pluginName, key string, value bool) error {
+	return s.Set(pluginName, key, []byte(strconv.FormatBool(value)))
 }
 
 // SetJSON marshals and stores JSON data for a plugin by key
